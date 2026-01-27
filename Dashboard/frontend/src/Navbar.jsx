@@ -1,0 +1,237 @@
+import React, { useState } from 'react';
+import axios from "axios";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import { User, Sun, Moon, LogOut, Menu, X, FileText, MessageSquare, Code, MessageCircle, Video } from 'lucide-react';
+
+export default function Navbar({ theme, changeTheme }) {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const isDark = theme === 'dark';
+
+  const styles = {
+    nav: {
+      backgroundColor: isDark ? '#1f2937' : '#ffffff',
+      borderBottomColor: isDark ? '#374151' : '#e5e7eb'
+    },
+    text: {
+      color: isDark ? '#d1d5db' : '#4b5563'
+    },
+    hoverBg: isDark ? '#374151' : '#f9fafb'
+  };
+
+  const logout = async () => {
+  try {
+    const res = await axios.post(
+      "http://localhost:3000/logout",
+      {},
+      { withCredentials: true }
+    );
+
+    if (res.status === 200) {
+      window.location.href = "http://localhost:5173";
+    }
+  } catch (err) {
+    console.error("Logout failed", err);
+  }
+};
+
+  return (
+    <nav 
+      className="fixed top-0 left-0 w-full z-50 shadow-sm border-b transition-colors duration-200"
+      style={styles.nav}
+    >
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          {/* Left side - Profile Icon */}
+          <div className="flex items-center">
+            <a className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg">
+              <User size={20} style={{ color: '#ffffff', strokeWidth: 2 }} />
+            </a>
+          </div>
+
+          {/* Center - Navigation Items (Desktop) */}
+          <div className="hidden lg:flex items-center space-x-10">
+            <a 
+              href="#documents" 
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <FileText size={16} />
+              <span className="font-medium text-sm">Documents</span>
+            </a>
+            <a 
+              href="#ai-assistant" 
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <MessageSquare size={16} />
+              <span className="font-medium text-sm">AI Assistant</span>
+            </a>
+            <a 
+              href="#code-editor" 
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <Code size={16} />
+              <span className="font-medium text-sm">Code Editor</span>
+            </a>
+            <a 
+              href="#chat" 
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <MessageCircle size={16} />
+              <span className="font-medium text-sm">Chat</span>
+            </a>
+            <a 
+              href="#video-call" 
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <Video size={16} />
+              <span className="font-medium text-sm">Video Call</span>
+            </a>
+          </div>
+
+          {/* Right side - Theme Toggle & Logout (Desktop) */}
+          <div className="hidden lg:flex items-center space-x-2">
+            <a
+              onClick={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              {isDark ? (
+                <Sun size={20} style={{ strokeWidth: 2 }} />
+              ) : (
+                <Moon size={20} style={{ strokeWidth: 2 }} />
+              )}
+            </a>
+            <button 
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onClick={logout}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <LogOut size={16} />
+              <span className="font-medium text-sm">Logout</span>
+            </button>
+          </div>
+
+          {/* Mobile menu button & theme toggle */}
+          <div className="flex lg:hidden items-center space-x-2">
+            <a
+              onClick={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              {isDark ? (
+                <Sun size={20} style={{ strokeWidth: 2 }} />
+              ) : (
+                <Moon size={20} style={{ strokeWidth: 2 }} />
+              )}
+            </a>
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 rounded-lg transition-colors duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              {isMobileMenuOpen ? (
+                <X size={24} style={{ strokeWidth: 2 }} />
+              ) : (
+                <Menu size={24} style={{ strokeWidth: 2 }} />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile menu */}
+        {isMobileMenuOpen && (
+          <div 
+            className="lg:hidden py-4 z-50 space-y-1 border-t"
+            style={{ borderTopColor: isDark ? '#374151' : '#e5e7eb' }}
+          >
+            <a 
+              href="#documents" 
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <FileText size={20} />
+              <span className="font-medium">Documents</span>
+            </a>
+            <a 
+              href="#ai-assistant" 
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <MessageSquare size={20} />
+              <span className="font-medium">AI Assistant</span>
+            </a>
+            <a 
+              href="#code-editor" 
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <Code size={20} />
+              <span className="font-medium">Code Editor</span>
+            </a>
+            <a 
+              href="#chat" 
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <MessageCircle size={20} />
+              <span className="font-medium">Chat</span>
+            </a>
+            <a 
+              href="#video-call" 
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
+              style={{ color: styles.text.color }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <Video size={20} />
+              <span className="font-medium">Video Call</span>
+            </a>
+
+            <button 
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 w-full"
+              style={{ color: styles.text.color }}
+              onClick={logout}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <LogOut size={20} />
+              <span className="font-medium">Logout</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+}
