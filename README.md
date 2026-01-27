@@ -1,0 +1,2 @@
+# Collabryx--AI-powered-real-time-collaboration-platform-SaaS-
+Collabryx is an AI powered real time collaboration platform offering group chat, video calls, shared editing, and Copilot like assistance. It enables teams to collaborate using intelligent agents, contextual knowledge retrieval over company documents, and integrated developer and productivity workflows, built on scalable distributed system design..
