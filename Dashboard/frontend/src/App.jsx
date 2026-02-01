@@ -3,6 +3,7 @@ import Navbar from './Navbar.jsx';
 import Docs from './Documents/Docs.jsx';
 import Editor from './Editor/Editor.jsx';
 import GroupChat from './chatSpace/GroupChat.jsx';
+import Chatbot from './Chatbot/chatbot.jsx';
 
 function App() {
   const [theme, setTheme] = useState(() => {
@@ -40,9 +41,12 @@ function App() {
   return (
   <>
     <Navbar theme={theme} changeTheme={changeTheme} />
-    {/* <Docs/> */}
-    <Editor theme={theme}/>
-    {/* <GroupChat theme={theme} /> */}
+    <Routes>
+      <Route path="/" element={<Docs/>}/>
+      <Route path="editor" element={<Editor theme={theme}/>}/>
+      <Route path="chat" element={<GroupChat/>}/>
+      <Route path="chatbot" element={<Chatbot/>}/>
+    </Routes>
   </>
 );
 

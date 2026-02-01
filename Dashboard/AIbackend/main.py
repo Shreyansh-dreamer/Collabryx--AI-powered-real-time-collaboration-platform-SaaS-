@@ -23,7 +23,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:5174",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -33,12 +34,10 @@ app.add_middleware(
 app.include_router(chat.router)
 
 
-# ENV
 MONGO_URI = os.getenv("MONGO_URL")
 HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
 
-# Vector store
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2",
     huggingfacehub_api_token=HF_API_KEY
@@ -54,7 +53,6 @@ vectorstore = MongoDBAtlasVectorSearch(
 )
 
 
-# Text splitter
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
     chunk_overlap=50
@@ -157,7 +155,6 @@ def get_thread_messages(thread_id: str):
         for cp in checkpoints:
             state = cp.state
             msgs = state.get("messages", [])
-            # Convert BaseMessage objects to dicts if needed
             messages.extend([{"role": m.role, "content": m.content} for m in msgs])
         return {"messages": messages}
     except Exception as e:

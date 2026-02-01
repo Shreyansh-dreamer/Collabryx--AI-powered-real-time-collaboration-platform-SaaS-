@@ -11,7 +11,6 @@ function Page() {
     <div className="bg-white dark:bg-[#1B1E19]">
       <div className="w-screen flex justify-center md:justify-around pt-9 mb-7 px-4 bg-gray-100 dark:bg-[#1B1E19] transition-colors duration-300">
         <div className="flex flex-col md:flex-row md:gap-6 items-center justify-between max-w-screen-xl w-full py-9">
-          {/* Left Section */}
           <div className="w-full md:w-1/2 text-left ml-5">
             <h2 className="text-3xl font-bold mb-5 md:py-2 lg:mb-6 text-gray-800 dark:text-white mt-5 md:mt-0">
               Build. Collaborate. Ship
@@ -20,12 +19,10 @@ function Page() {
 
             <div className=" text-gray-700 dark:text-[#e0e0e0] font-medium">
               <div className="text-gray-700 dark:text-[#e0e0e0] font-medium text-base md:text-lg leading-relaxed max-w-xl">
-                {/* Small screens */}
                 <p className="block lg:hidden">
                   Code live, debug together, talk instantly, chat together, organise meetings and let AI handle the heavy lifting. Build faster, together.
                 </p>
 
-                {/* Medium and larger screens */}
                 <div className="hidden lg:block space-y-3">
                   <p>Building software shouldn’t feel disconnected. Ideas move fast — your tools should too.Collabryx keeps everyone in the same moment. No waiting. No silos. No broken flow.</p>
                   <p>Just your team, thinking and building together. From the first idea to the final commit — in sync.Work feels lighter when collaboration feels natural. This is how modern teams build.</p>
@@ -40,7 +37,6 @@ function Page() {
             </div>
           </div>
 
-          {/* Right Section */}
           <div className="w-full md:w-1/2 p-5 ml-3">
             <img
               src="logocollabryx.png"

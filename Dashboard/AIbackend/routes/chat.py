@@ -9,7 +9,7 @@ import dateparser
 from typing import Annotated, TypedDict, Optional, List
 from datetime import datetime, timezone, timedelta
 
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -24,6 +24,7 @@ from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_community.vectorstores import MongoDBAtlasVectorSearch
 from langchain_community.llms import HuggingFaceHub
 from langchain_core.output_parsers import PydanticOutputParser
@@ -39,16 +40,12 @@ from google_auth_oauthlib.flow import Flow
 # =====================================================
 import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
-
-# Connect SQLite (allow multithreading)
 conn = sqlite3.connect(database="chatbot.db", check_same_thread=False)
-
-# Create SqliteSaver checkpointer
 checkpointer = SqliteSaver(conn=conn)
 
 
 # =====================================================
-# ENV + DB
+#  DATA
 # =====================================================
 load_dotenv()
 
@@ -63,21 +60,22 @@ mongo = MongoClient(MONGO_URI)
 db = mongo["collabryxdb"]
 UsersModel = db["users"]
 
-# =====================================================
-# FASTAPI
-# =====================================================
 app = FastAPI()
 router = APIRouter(prefix="/chat", tags=["Chat"])
 app.include_router(router)
 
 # =====================================================
-# LLM + VECTOR STORE
+# VECTOR STORE
 # =====================================================
-llm = HuggingFaceHub(
-    repo_id="google/flan-t5-large",
+chatllm = HuggingFaceEndpoint(
+    repo_id="mistralai/Mistral-7B-Instruct-v0.3",
     huggingfacehub_api_token=HF_API_KEY,
-    model_kwargs={"temperature": 0.2, "max_length": 512},
+    task="text-generation",
+    max_new_tokens=512,
+    temperature=0.1,
 )
+
+llm = ChatHuggingFace(llm=chatllm)
 
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
@@ -176,13 +174,7 @@ def get_stock_price(symbol: str) -> dict:
     return {"symbol": symbol, "price": "mock"}
 
 @tool
-def gmail_send_intent(
-    to_hint: str,
-    subject_hint: str,
-    body_hint: str,
-    cc: Optional[str] = None,
-    bcc: Optional[str] = None,
-):
+def gmail_send_intent(to_hint: str,subject_hint: str,body_hint: str,cc: Optional[str] = None,bcc: Optional[str] = None,):
     return {
         "to_hint": to_hint,
         "subject_hint": subject_hint,
@@ -223,43 +215,48 @@ tool_node = ToolNode(tools)
 # CHAT NODES
 # =====================================================
 def chat_node(state: ChatState):
-    """LLM chat node, responds using chat messages"""
-    response = llm_with_tools.invoke(state["messages"])
+    system_prompt = SystemMessage(content=(
+        "You are a helpful assistant. Use tools only when necessary. "
+        "If a user wants to send an email, use gmail_send_intent. "
+        "If they want to schedule a meeting, use calendar_create_intent."
+    ))
+    messages = [system_prompt] + state["messages"]
+    response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
 
 
 
 def extract_calendar_intent(state: ChatState):
-    """
-    Extract structured calendar info from user message.
-    Uses:
-    - LLM to parse general intent (title, description, approximate time)
-    - dateparser to convert natural language times to ISO date and 24h start time
-    """
     prompt = f"""
-{calendar_parser.get_format_instructions()}
-User message:
-{state['messages'][-1].content}
-Rules:
-- Infer date and time from phrases like "tomorrow morning", "next Monday at 3pm"
-- Default duration: 60 minutes if end time missing
-- Return ONLY structured output
-"""
-    parsed = calendar_parser.parse(llm.invoke(prompt).content)
-    data = parsed.model_dump()
-    # -----------------------------
-    # Use dateparser to handle natural language times
-    # -----------------------------
-    dt = dateparser.parse(
-        f"{data['date']} {data['start_time']}",
-        settings={"PREFER_DATES_FROM": "future", "TIMEZONE": "Asia/Kolkata"}
-    )
-    if dt:
-        data['date'] = dt.date().isoformat()         
-        data['start_time'] = dt.strftime("%H:%M")   
+    {calendar_parser.get_format_instructions()}
+    Convert the following user request into JSON:
+    "{state['messages'][-1].content}"
+    """
+    raw_output = llm.invoke([HumanMessage(content=prompt)]).content
+    if "{" in raw_output:
+        raw_output = raw_output[raw_output.find("{"):raw_output.rfind("}")+1]
+    try:
+        parsed = calendar_parser.parse(raw_output)
+        data = parsed.model_dump()
+        dt = dateparser.parse(
+            f"{data['date']} {data['start_time']}",
+            settings={"PREFER_DATES_FROM": "future", "TIMEZONE": "Asia/Kolkata"}
+        )
+        if dt:
+            data['date'] = dt.date().isoformat()
+            data['start_time'] = dt.strftime("%H:%M")
+        state["calendar_intent"] = data
+        return state
+    except Exception as e:
+        return {"messages": [AIMessage(content="I had trouble parsing that date. Could you tell me the date and time clearly?")]}
 
-    state["calendar_intent"] = data
-    return state
+
+
+def get_google_credentials(state: ChatState):
+    """Helper to build credentials from state tokens"""
+    return Credentials(
+        token=state.get("gmail_access_token"),
+    )
 
 
 
@@ -272,7 +269,7 @@ def create_calendar_event_node(state: ChatState):
         end_dt = tz.localize(datetime.fromisoformat(f"{intent['date']}T{intent['end_time']}"))
     else:
         end_dt = start_dt + timedelta(minutes=intent.get("duration_minutes", 60))
-    creds = get_google_credentials()
+    creds = get_google_credentials(state)
     service = build("calendar", "v3", credentials=creds)
     event = {
         "summary": intent["title"],
@@ -281,7 +278,7 @@ def create_calendar_event_node(state: ChatState):
         "end": {"dateTime": end_dt.isoformat(), "timeZone": "Asia/Kolkata"},
     }
     service.events().insert(calendarId="primary", body=event).execute()
-    return {"messages": [AIMessage(content="✅ Event created successfully")]}
+    return {"messages": [AIMessage(content="Event created successfully")]}
 
 # =====================================================
 # ROUTE AFTER TOOL
@@ -348,7 +345,7 @@ def extract_email_info(state: ChatState):
     """Extract structured email info from message"""
     try:
         prompt = f"{email_parser.get_format_instructions()}\nMessage:\n{state['messages'][-1].content}"
-        parsed = email_parser.parse(llm.invoke(prompt).content)
+        parsed = email_parser.parse(llm.invoke([HumanMessage(content=prompt)]).content)
         state.update(parsed.model_dump())
     except Exception as e:
         state["email_error"] = str(e)
@@ -357,7 +354,7 @@ def extract_email_info(state: ChatState):
 
 
 def find_recipients(state: ChatState):
-    """Find eligible users in DB based on to_hint"""
+    """Find eligible users in DataBase based on to_hint"""
     try:
         users = list(
             UsersModel.find(
@@ -373,7 +370,10 @@ def find_recipients(state: ChatState):
             )
         )
         if not users:
-            interrupt("No matching users found. Enter email manually.")
+            interrupt({
+                "type": "MANUAL_EMAIL_REQUIRED",
+                "message": "No matching users found. Enter email manually."
+            })
         state["eligible_users"] = users
     except Exception as e:
         state["email_error"] = str(e)
@@ -385,7 +385,14 @@ def select_recipient(state: ChatState):
     """Select recipient from eligible users"""
     if not state.get("eligible_users"):
         return state
-    choice = interrupt("Choose index or username:")
+    choice = interrupt({
+                "type": "USER_CHOICE",
+                "message": "Choose index or username:",
+                "options": [
+                    {"index": i, "username": u["username"]}
+                    for i, u in enumerate(state["eligible_users"])
+                ]
+            })
     for i, u in enumerate(state["eligible_users"]):
         if choice == u["username"] or choice == str(i):
             state["selected_user"] = u
@@ -397,7 +404,10 @@ def select_recipient(state: ChatState):
 def manual_email_node(state: ChatState):
     """Ask user to manually enter recipient email if no selection"""
     if not state.get("selected_user"):
-        state["manual_email"] = interrupt("Enter recipient email:")
+        state["manual_email"] = interrupt({
+                                    "type": "USER_INPUT",
+                                    "message": "Enter recipient email:"
+                                })
     return state
 
 
@@ -490,10 +500,10 @@ def send_email_node(state: ChatState):
         creds = Credentials(token=state["gmail_access_token"])
         service = build("gmail", "v1", credentials=creds)
         service.users().messages().send(userId="me", body={"raw": raw}).execute()
-        return {"messages": [AIMessage(content="✅ Email sent successfully")]}
+        return {"messages": [AIMessage(content="Email sent successfully")]}
     except Exception as e:
         state["email_error"] = str(e)
-        return {"messages": [AIMessage(content="❌ Failed to send email")]}
+        return {"messages": [AIMessage(content="Failed to send email")]}
 
 # =====================================================
 # GRAPH
@@ -545,24 +555,45 @@ graph.add_edge("create_calendar_event", END)
 app_graph = graph.compile(checkpointer=checkpointer)
 print(graph.get_graph().draw_ascii())
 
-# =====================================================
-# STREAMING
-# =====================================================
-@router.post("/stream")
-async def chat_stream(payload: dict):
-    async def event_gen():
-        try:
-            async for event in app_graph.astream_events(payload, version="v1"):
-                yield f"data: {json.dumps(event)}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'event':'error','message':str(e)})}\n\n"
 
-    return StreamingResponse(event_gen(), media_type="text/event-stream")
+@router.get("/stream")
+def chat_stream(request: Request):
+    thread_id = request.query_params.get("thread_id")
+    def event_generator():
+        for event in app_graph.stream(
+            {"messages": []},
+            config={"configurable": {"thread_id": thread_id}},
+            stream_mode="events",
+        ):
+            if event["event"] == "interrupt":
+                yield f"event: interrupt\ndata: {json.dumps(event['data'])}\n\n"
+                return
+            else:
+                yield f"event: message\ndata: {json.dumps(event)}\n\n"
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"X-Thread-Id": thread_id},
+    )
+
+class ResumeRequest(BaseModel):
+    thread_id: str
+    input: str
+
+@router.post("/resume")
+def resume_graph(req: ResumeRequest):
+    for event in app_graph.stream(
+        {"messages": [HumanMessage(content=req.input)]},
+        config={"configurable": {"thread_id": req.thread_id}},
+        stream_mode="events",
+    ):
+        if event["event"] == "interrupt":
+            return event["data"]
+        if event["event"] == "end":
+            return {"type": "done"}
+    return {"type": "done"}
 
 
-# -------------------
-# Helper: retrieve all threads
-# -------------------
 def retrieve_all_threads():
     all_threads = set()
     for checkpoint in checkpointer.list(None):

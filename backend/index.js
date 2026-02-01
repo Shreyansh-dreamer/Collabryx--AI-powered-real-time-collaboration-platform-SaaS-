@@ -73,15 +73,15 @@ socketHandler(io);
 (async function startServer() {
   try {
     await mongoose.connect(url);
-    console.log("✅ Database connected");
+    console.log("Database connected");
 
     await connectRedis();
     console.log("Resdis connected")
 
     server.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Backend running on http://localhost:${PORT}`);
+      console.log(`Backend running on http://localhost:${PORT}`);
     });
   } catch (err) {
-    console.error("❌ Startup failed:", err);
+    console.error("Startup failed:", err);
   }
 })();

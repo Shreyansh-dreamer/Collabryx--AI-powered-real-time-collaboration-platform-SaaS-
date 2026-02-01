@@ -88,7 +88,6 @@ const Chatbot = ({ theme = 'light' }) => {
       const res = await api.get(`/threads/${id}`);
       const msgs = res.data?.messages || [];
       setMessages(msgs);
-      // Set thread name if not already set
       if (!threadNames[id] && msgs.length > 0) {
         setThreadNames((p) => ({
           ...p,
@@ -131,11 +130,11 @@ const Chatbot = ({ theme = 'light' }) => {
 
   const streamChat = (payload) => {
     setIsProcessing(true);
-    const es = new EventSource("http://localhost:8000/chat/stream");
-    let buffer = "";
+    const es = new EventSource(`http://localhost:8000/chat/stream?thread_id=${currentThreadId}`);
+    let buffer="";
     es.onmessage = (e) => {
       const evt = JSON.parse(e.data);
-      if (evt.event === "on_llm_token") {
+      if (evt.event === "on_chat_model_token") {
         buffer += evt.data.chunk;
         setMessages(p => {
           const last = p[p.length - 1];
@@ -148,7 +147,9 @@ const Chatbot = ({ theme = 'light' }) => {
       if (evt.event === "on_tool_start") setCurrentTool(evt.name);
       if (evt.event === "on_tool_end") setCurrentTool(null);
       if (evt.event === "interrupt") {
-        window.location.href = evt.data.auth_url;
+        if (evt.type === "GMAIL_AUTH_REQUIRED") {
+          window.location.href = evt.auth_start_endpoint;
+        }
         es.close();
       }
       if (evt.event === "end" || evt.event === "error") {
@@ -159,24 +160,33 @@ const Chatbot = ({ theme = 'light' }) => {
   };
 
 
-  /* -------------------- SEND MESSAGE -------------------- */
-  const handleSendMessage = () => {
-    if (!input.trim() || !currentThreadId) return;
-    const userMsg = { role: 'user', content: input };
+const handleSendMessage = async () => {
+  if (!input.trim() || !currentThreadId) return;
+  const userMsg = { role: 'user', content: input };
+  setMessages((p) => [...p, userMsg]);
+  const tempInput = input; 
+  setInput('');
+  setIsProcessing(true);
+
+  try {
     if (messages.length === 0) {
       setThreadNames((p) => ({
         ...p,
-        [currentThreadId]: generateThreadName(input)
+        [currentThreadId]: generateThreadName(tempInput)
       }));
     }
-    setMessages((p) => [...p, userMsg]);
-    setInput('');
-    setIsProcessing(true);
-    streamChat({
-      messages: [{ role: 'user', content: input }],
-      thread_id: currentThreadId
+
+    await api.post('/resume', {
+      thread_id: currentThreadId,
+      input: tempInput
     });
-  };
+    
+    streamChat(currentThreadId);
+  } catch (err) {
+    console.error(err);
+    setIsProcessing(false);
+  }
+};
 
 
   /* -------------------- RESUME AFTER AUTH -------------------- */
