@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from "axios";
+import { Link } from "react-router-dom";
 import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import { User, Sun, Moon, LogOut, Menu, X, FileText, MessageSquare, Code, MessageCircle, Video } from 'lucide-react';
@@ -43,68 +44,39 @@ export default function Navbar({ theme, changeTheme }) {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          {/* Left side - Profile Icon */}
           <div className="flex items-center">
             <a className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg">
               <User size={20} style={{ color: '#ffffff', strokeWidth: 2 }} />
             </a>
           </div>
 
-          {/* Center - Navigation Items (Desktop) */}
           <div className="hidden lg:flex items-center space-x-10">
-            <a 
-              href="#documents" 
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            <Link to="/" className="flex items-center space-x-2 px-4 py-2 rounded-lg">
               <FileText size={16} />
               <span className="font-medium text-sm">Documents</span>
-            </a>
-            <a 
-              href="#ai-assistant" 
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            </Link>
+            <Link to="/chatbot" className="flex items-center space-x-2 px-4 py-2 rounded-lg">
               <MessageSquare size={16} />
               <span className="font-medium text-sm">AI Assistant</span>
-            </a>
-            <a 
-              href="#code-editor" 
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            </Link>
+            <Link to="/editor" className="flex items-center space-x-2 px-4 py-2 rounded-lg">
               <Code size={16} />
               <span className="font-medium text-sm">Code Editor</span>
-            </a>
-            <a 
-              href="#chat" 
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            </Link>
+            <Link to="/chat" className="flex items-center space-x-2 px-4 py-2 rounded-lg">
               <MessageCircle size={16} />
               <span className="font-medium text-sm">Chat</span>
-            </a>
-            <a 
-              href="#video-call" 
+            </Link>
+            <a
+              href="#video-call"
               className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200"
               style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
               <Video size={16} />
               <span className="font-medium text-sm">Video Call</span>
             </a>
           </div>
 
-          {/* Right side - Theme Toggle & Logout (Desktop) */}
           <div className="hidden lg:flex items-center space-x-2">
             <a
               onClick={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -131,7 +103,6 @@ export default function Navbar({ theme, changeTheme }) {
             </button>
           </div>
 
-          {/* Mobile menu button & theme toggle */}
           <div className="flex lg:hidden items-center space-x-2">
             <a
               onClick={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -162,58 +133,31 @@ export default function Navbar({ theme, changeTheme }) {
           </div>
         </div>
 
-        {/* Mobile menu */}
         {isMobileMenuOpen && (
           <div 
             className="lg:hidden py-4 z-50 space-y-1 border-t"
             style={{ borderTopColor: isDark ? '#374151' : '#e5e7eb' }}
           >
-            <a 
-              href="#documents" 
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            <Link to="/" className="flex items-center space-x-3 px-4 py-3 rounded-lg">
               <FileText size={20} />
               <span className="font-medium">Documents</span>
-            </a>
-            <a 
-              href="#ai-assistant" 
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            </Link>
+            <Link to="/chatbot" className="flex items-center space-x-3 px-4 py-3 rounded-lg">
               <MessageSquare size={20} />
               <span className="font-medium">AI Assistant</span>
-            </a>
-            <a 
-              href="#code-editor" 
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            </Link>
+            <Link to="/editor" className="flex items-center space-x-3 px-4 py-3 rounded-lg">
               <Code size={20} />
               <span className="font-medium">Code Editor</span>
-            </a>
-            <a 
-              href="#chat" 
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
-              style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
+            </Link>
+            <Link to="/chat" className="flex items-center space-x-3 px-4 py-3 rounded-lg">
               <MessageCircle size={20} />
               <span className="font-medium">Chat</span>
-            </a>
-            <a 
-              href="#video-call" 
+            </Link>
+            <a
+              href="#video-call"
               className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200"
               style={{ color: styles.text.color }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
               <Video size={20} />
               <span className="font-medium">Video Call</span>

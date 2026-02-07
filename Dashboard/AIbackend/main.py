@@ -9,11 +9,11 @@ import os
 from routes import chat
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.prompts import PromptTemplate  
 from langchain_core.output_parsers import StrOutputParser  
-from langchain_community.llms import HuggingFaceHub
+from langchain_huggingface import HuggingFaceEndpoint
 
 app = FastAPI()
 
@@ -39,16 +39,17 @@ HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
 
 embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
-    huggingfacehub_api_token=HF_API_KEY
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+    # huggingfacehub_api_token=HF_API_KEY
 )
 
+mongo = MongoClient(MONGO_URI)
+db = mongo["collabryxdb"]
+collection = db["embeddings"]
 
 vectorstore = MongoDBAtlasVectorSearch(
-    collection_name="embeddings",
+    collection=collection,
     embedding=embeddings,
-    connection_string=MONGO_URI,
-    database_name="collabryxdb",
     index_name="vector_index"
 )
 
@@ -58,17 +59,22 @@ splitter = RecursiveCharacterTextSplitter(
     chunk_overlap=50
 )
 
+@app.on_event("startup")
+def warmup():
+    embeddings.embed_query("warmup")
+
+@app.get("/")
+def health():
+    return {"status": "AI backend running"}
 
 
-# CoPilot like feature
-llm = HuggingFaceHub(
+
+llm = HuggingFaceEndpoint(
     repo_id="mistralai/Mistral-7B-Instruct-v0.2",
     huggingfacehub_api_token=HF_API_KEY,
-    model_kwargs={
-        "temperature": 0.15,
-        "max_new_tokens": 80,
-        "stop": ["\n\n"]
-    }
+    # task="text-generation",
+    max_new_tokens=512,
+    temperature=0.1,
 )
 
 class CodeCompletionRequest(BaseModel):
@@ -102,7 +108,7 @@ async def ai_complete(req: CodeCompletionRequest):
 
 
 
-# RAG
+
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...),org: str = Form(...)):
     if file.content_type != "application/pdf":
@@ -147,7 +153,6 @@ def get_thread_messages(thread_id: str):
     Returns all saved messages for a given thread from SqliteSaver
     """
     try:
-        # Retrieve all checkpoints for this thread
         checkpoints = checkpointer.list(
             {"configurable.thread_id": thread_id}
         )

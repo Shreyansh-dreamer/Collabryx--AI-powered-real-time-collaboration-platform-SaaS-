@@ -11,7 +11,7 @@ const session = require("express-session");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const { connectRedis } = require("./redisClient");
+// const { connectRedis } = require("./redisClient");
 
 const authRoutes = require("./routes/authRoutes");
 const userSpecificRoutes = require("./routes/userSpecificRotes");
@@ -75,8 +75,8 @@ socketHandler(io);
     await mongoose.connect(url);
     console.log("Database connected");
 
-    await connectRedis();
-    console.log("Resdis connected")
+    // await connectRedis();
+    // console.log("Redis connected")
 
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`Backend running on http://localhost:${PORT}`);

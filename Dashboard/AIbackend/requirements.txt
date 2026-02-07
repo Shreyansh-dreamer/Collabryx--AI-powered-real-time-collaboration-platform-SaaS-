@@ -5,9 +5,12 @@ python-multipart
 
 pymongo
 dnspython
+dotenv
 
 langchain
 langchain-community
+
+langgraph
 
 sentence-transformers
 huggingface-hub

@@ -7,19 +7,15 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL,
+      callbackURL: process.env.GOOGLE_REDIRECT_URL,
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
         console.log("Google profile:", profile);
-
-        // Check if user with googleId already exists
         let user = await User.findOne({ googleId: profile.id });
         if (user) return done(null, user);
 
         const email = profile.emails?.[0]?.value || '';
-
-        // Check if user with same email already exists
         let existingUser = await User.findOne({ email });
 
         if (existingUser) {
@@ -29,8 +25,6 @@ passport.use(
           await existingUser.save();
           return done(null, existingUser);
         }
-
-        // If not found by googleId or email, create a new user
         const newUser = new User({
           googleId: profile.id,
           name: profile.displayName,

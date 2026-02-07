@@ -16,7 +16,6 @@ function Navbar({ theme, changeTheme, onContactClick, onLoginClick, onSignupClic
   return (
     <div className="w-full h-[4.5rem] bg-white dark:bg-[#192231] text-black dark:text-white border-b-2 border-gray-200 dark:border-gray-700 fixed top-0 z-10 duration-300">
       <div className="flex justify-between md:justify-around items-center h-full">
-        {/* Brand */}
         <div className="flex items-center group transition-transform hover:scale-105">
         <div className="ml-3">
           <h1 className="font-bold text-black dark:text-white tracking-wide">
@@ -25,7 +24,6 @@ function Navbar({ theme, changeTheme, onContactClick, onLoginClick, onSignupClic
           <div className="h-0.5 bg-gradient-to-r from-yellow-400 via-orange-400 to-pink-400 dark:from-blue-400 dark:via-purple-400 dark:to-pink-400 rounded-full transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></div>
         </div>
       </div>
-        {/* Links and Theme Toggle */}
         <div className="flex items-center gap-[0.8rem] md:gap-[1.5rem]">
           <button
             onClick={onContactClick}
