@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
@@ -19,14 +20,13 @@ from langgraph.graph.message import add_messages
 from langgraph.types import Command, interrupt
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from langchain_core.messages import BaseMessage
-from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_groq import ChatGroq
 
 from pydantic import BaseModel, Field
 
@@ -37,111 +37,86 @@ from google_auth_oauthlib.flow import Flow
 import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-conn = sqlite3.connect(database="chatbot.db", check_same_thread=False)
-checkpointer = SqliteSaver(conn=conn)
-
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URL")
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+conn        = sqlite3.connect(database="chatbot.db", check_same_thread=False)
+checkpointer = SqliteSaver(conn=conn)
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+MONGO_URI            = os.getenv("MONGO_URL")
+GROQ_API_KEY         = os.getenv("GROQ_API_KEY")
+GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI")
 
-mongo = MongoClient(MONGO_URI)
-db = mongo["collabryxdb"]
-collection = db["embeddings"]
-UsersModel = db["users"]
+mongo      = MongoClient(MONGO_URI)
+db_mongo   = mongo["collabryxdb"]
+collection = db_mongo["embeddings"]
+UsersModel = db_mongo["users"]
+
+
+_pending_messages: dict = {}  
+_pending_resumes:  dict = {}  
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 router = APIRouter(prefix="/chat", tags=["Chat"])
 app.include_router(router)
 
-
-chatllm = HuggingFaceEndpoint(
-    repo_id="mistralai/Mistral-7B-Instruct-v0.3",
-    huggingfacehub_api_token=HF_API_KEY,
-    task="text-generation",
-    max_new_tokens=512,
-    temperature=0.1,
-)
-
-llm = ChatHuggingFace(llm=chatllm)
-
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
-
+llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY, temperature=0.7)
+embeddings  = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 vectorstore = MongoDBAtlasVectorSearch(
-    collection=collection,
-    embedding=embeddings,
-    index_name="vector_index"
+    collection=collection, embedding=embeddings, index_name="vector_index"
 )
-
 
 class CalendarEventIntent(BaseModel):
-    """
-    Pydantic model to parse calendar event info from user messages
-    """
-    title: str = Field(description="Short event title")
-    date: str = Field(description="Event date in YYYY-MM-DD format")
-    start_time: str = Field(description="Event start time in HH:MM 24h format")
-    end_time: Optional[str] = Field(default=None, description="Optional end time")
-    duration_minutes: Optional[int] = Field(default=None, description="Duration if end_time missing")
-    description: Optional[str] = Field(default=None, description="Optional detailed description")
-
-calendar_parser = PydanticOutputParser(pydantic_object=CalendarEventIntent)
-
+    title:            str
+    date:             str
+    start_time:       str
+    end_time:         Optional[str] = None
+    duration_minutes: Optional[int] = None
+    description:      Optional[str] = None
 
 class EmailIntentModel(BaseModel):
-    """
-    Pydantic model to parse email sending info from user messages
-    """
-    to: str
-    cc: Optional[str]
-    bcc: Optional[str]
-    subject: str
+    to:        str
+    cc:        Optional[str]
+    bcc:       Optional[str]
+    subject:   str
     body_hint: str
 
-email_parser = PydanticOutputParser(pydantic_object=EmailIntentModel)
-
-
-
+calendar_parser = PydanticOutputParser(pydantic_object=CalendarEventIntent)
+email_parser    = PydanticOutputParser(pydantic_object=EmailIntentModel)
 
 class ChatState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
-    user_email: str
-    org: str
-    calendar_intent: Optional[dict]
-
-    to_hint: Optional[str]
-    subject_hint: Optional[str]
-    body_hint: Optional[str]
-    cc: Optional[str]
-    bcc: Optional[str]
-    eligible_users: Optional[List[dict]]
-    selected_user: Optional[dict]
-    manual_email: Optional[str]
-    email_body: Optional[str]
+    messages:           Annotated[List[BaseMessage], add_messages]
+    user_email:         str
+    org:                str
+    calendar_intent:    Optional[dict]
+    to_hint:            Optional[str]
+    subject_hint:       Optional[str]
+    body_hint:          Optional[str]
+    cc:                 Optional[str]
+    bcc:                Optional[str]
+    eligible_users:     Optional[List[dict]]
+    selected_user:      Optional[dict]
+    manual_email:       Optional[str]
+    email_body:         Optional[str]
     gmail_access_token: Optional[str]
     gmail_token_expiry: Optional[str]
-
-    rag_docs: Optional[list]
-    
-    email_sent: Optional[bool]
-    email_error: Optional[str]
-
-
-
-
-
+    rag_docs:           Optional[list]
+    email_sent:         Optional[bool]
+    email_error:        Optional[str]
 
 search_tool = DuckDuckGoSearchRun(region="us-en")
 
 @tool
 def calculator(expression: str) -> str:
-    """Calculate mathematical expressions"""
+    """Calculate mathematical expressions."""
     try:
         return str(eval(expression, {"__builtins__": {}}))
     except Exception as e:
@@ -149,158 +124,135 @@ def calculator(expression: str) -> str:
 
 @tool
 def github_profile(username: str) -> str:
-    """Get GitHub profile URL for a username"""
-    import requests
-    r = requests.get(f"https://api.github.com/users/{username}")
+    """Get GitHub profile URL for a username."""
+    import requests as _req
+    r = _req.get(f"https://api.github.com/users/{username}")
     return f"https://github.com/{username}" if r.status_code == 200 else "Not found"
 
 @tool
 def get_stock_price(symbol: str) -> dict:
-    """Get stock price for a symbol (mock)"""
+    """Get stock price for a symbol."""
     return {"symbol": symbol, "price": "mock"}
 
 @tool
-def gmail_send_intent(to_hint: str, subject_hint: str, body_hint: str, cc: Optional[str] = None, bcc: Optional[str] = None):
-    """Intent to send an email via Gmail"""
-    return {
-        "to_hint": to_hint,
-        "subject_hint": subject_hint,
-        "body_hint": body_hint,
-        "cc": cc,
-        "bcc": bcc,
-    }
+def gmail_send_intent(
+    to_hint: str, subject_hint: str, body_hint: str,
+    cc: Optional[str] = None, bcc: Optional[str] = None,
+):
+    """Intent to send an email via Gmail."""
+    return {"to_hint": to_hint, "subject_hint": subject_hint,
+            "body_hint": body_hint, "cc": cc, "bcc": bcc}
 
 @tool
 def doc_infoRetrieval_rag_intent(question: str) -> str:
-    """
-    Use this tool when we have to do some question answering or extract 
-    information from already stored documents
-    """
+    """Use this tool for question answering from stored documents."""
     return "RAG_QUERY"
 
 @tool
 def calendar_create_intent(message: str) -> str:
-    """
-    Use this tool when we have to create or schedule some events in the calendar
-    """
+    """Use this tool to create or schedule calendar events."""
     return "CALENDAR_CREATE"
 
-
-tools = [
-    search_tool,
-    calculator,
-    github_profile,
-    get_stock_price,
-    gmail_send_intent,
-    doc_infoRetrieval_rag_intent,
-    calendar_create_intent,
-]
+tools         = [search_tool, calculator, github_profile, get_stock_price,
+                 gmail_send_intent, doc_infoRetrieval_rag_intent, calendar_create_intent]
 llm_with_tools = llm.bind_tools(tools)
-tool_node = ToolNode(tools)
-
-
-
-
+tool_node      = ToolNode(tools)
 
 def chat_node(state: ChatState):
-    """Main chat node with LLM and tools"""
     system_prompt = SystemMessage(content=(
         "You are a helpful assistant. Use tools only when necessary. "
         "If a user wants to send an email, use gmail_send_intent. "
         "If they want to schedule a meeting, use calendar_create_intent. "
         "If they ask about documents, use doc_infoRetrieval_rag_intent."
     ))
-    messages = [system_prompt] + state["messages"]
-    response = llm_with_tools.invoke(messages)
+    response = llm_with_tools.invoke([system_prompt] + state["messages"])
     return {"messages": [response]}
 
 
-# =====================================================
-# CALENDAR NODES
-# =====================================================
 def extract_calendar_intent(state: ChatState):
-    """Extract calendar event details from user message"""
-    prompt = f"""
-    {calendar_parser.get_format_instructions()}
-    Convert the following user request into JSON:
-    "{state['messages'][-1].content}"
-    """
-    raw_output = llm.invoke([HumanMessage(content=prompt)]).content
-    if "{" in raw_output:
-        raw_output = raw_output[raw_output.find("{"):raw_output.rfind("}")+1]
+    last_human_content = ""
+    for msg in reversed(state["messages"]):
+        if getattr(msg, "type", None) == "human":
+            last_human_content = msg.content
+            break
+    prompt = (
+        f"{calendar_parser.get_format_instructions()}\n"
+        f'Convert this calendar request to JSON: "{last_human_content}"'
+    )
+    raw = llm.invoke([HumanMessage(content=prompt)]).content
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    if "{" in raw:
+        raw = raw[raw.find("{"):raw.rfind("}")+1]
     try:
-        parsed = calendar_parser.parse(raw_output)
-        data = parsed.model_dump()
-        dt = dateparser.parse(
+        parsed = calendar_parser.parse(raw)
+        data   = parsed.model_dump()
+        dt     = dateparser.parse(
             f"{data['date']} {data['start_time']}",
             settings={"PREFER_DATES_FROM": "future", "TIMEZONE": "Asia/Kolkata"}
         )
         if dt:
-            data['date'] = dt.date().isoformat()
-            data['start_time'] = dt.strftime("%H:%M")
+            data["date"]       = dt.date().isoformat()
+            data["start_time"] = dt.strftime("%H:%M")
         return {"calendar_intent": data}
     except Exception as e:
-        return {"messages": [AIMessage(content=f"I had trouble parsing that date: {e}. Could you tell me the date and time clearly?")]}
+        return {"messages": [AIMessage(
+            content=f"I had trouble parsing that date: {e}. Could you give me the date and time clearly?"
+        )]}
 
 
 def get_google_credentials(state: ChatState):
-    """Helper to build credentials from state tokens"""
-    return Credentials(
-        token=state.get("gmail_access_token"),
-    )
+    return Credentials(token=state.get("gmail_access_token"))
 
 
 def create_calendar_event_node(state: ChatState):
-    """Create Google Calendar event using parsed intent"""
-    intent = state["calendar_intent"]
-    tz = pytz.timezone("Asia/Kolkata")
+    intent   = state["calendar_intent"]
+    tz       = pytz.timezone("Asia/Kolkata")
     start_dt = tz.localize(datetime.fromisoformat(f"{intent['date']}T{intent['start_time']}"))
-    if intent.get("end_time"):
-        end_dt = tz.localize(datetime.fromisoformat(f"{intent['date']}T{intent['end_time']}"))
-    else:
-        end_dt = start_dt + timedelta(minutes=intent.get("duration_minutes", 60))
-    
-    creds = get_google_credentials(state)
+    end_dt   = (
+        tz.localize(datetime.fromisoformat(f"{intent['date']}T{intent['end_time']}"))
+        if intent.get("end_time")
+        else start_dt + timedelta(minutes=intent.get("duration_minutes", 60))
+    )
+    creds   = get_google_credentials(state)
     service = build("calendar", "v3", credentials=creds)
-    event = {
-        "summary": intent["title"],
+    event   = {
+        "summary":     intent["title"],
         "description": intent.get("description"),
         "start": {"dateTime": start_dt.isoformat(), "timeZone": "Asia/Kolkata"},
-        "end": {"dateTime": end_dt.isoformat(), "timeZone": "Asia/Kolkata"},
+        "end":   {"dateTime": end_dt.isoformat(),   "timeZone": "Asia/Kolkata"},
     }
     service.events().insert(calendarId="primary", body=event).execute()
-    return {"messages": [AIMessage(content=f"✓ Calendar event '{intent['title']}' created successfully for {intent['date']} at {intent['start_time']}")]}
+    return {"messages": [AIMessage(
+        content=f"Calendar event '{intent['title']}' created for {intent['date']} at {intent['start_time']}"
+    )]}
 
 
-# =====================================================
-# ROUTE AFTER TOOL
-# =====================================================
 def route_after_tool(state: ChatState) -> str:
-    """
-    Determines which node to route to after a tool is called
-    """
-    last = state["messages"][-1]
-    if hasattr(last, "tool_calls") and last.tool_calls:
-        name = last.tool_calls[0]["name"]
-        if name == "gmail_send_intent":
-            return "extract_email"
-        if name == "doc_infoRetrieval_rag_intent":
-            return "docRag"
-        if name == "calendar_create_intent":
-            return "extract_calendar_intent"
+    for msg in reversed(state["messages"]):
+        if getattr(msg, "type", None) == "ai" and getattr(msg, "tool_calls", None):
+            name = msg.tool_calls[0]["name"]
+            if name == "gmail_send_intent":           return "extract_email"
+            if name == "doc_infoRetrieval_rag_intent": return "docRag"
+            if name == "calendar_create_intent":      return "extract_calendar_intent"
+            return "chat"
     return "chat"
 
 
-# =====================================================
-# RAG NODES
-# =====================================================
 def rag_flow(state: ChatState):
-    """Retrieve relevant documents from vector store"""
     try:
+        query = ""
+        for msg in reversed(state["messages"]):
+            if getattr(msg, "type", None) == "human":
+                query = msg.content
+                break
         retriever = vectorstore.as_retriever(
             search_kwargs={"k": 5, "filter": {"metadata.org": state["org"]}}
         )
-        query = state["messages"][-1].content
         docs = retriever.get_relevant_documents(query)
         return {"rag_docs": docs}
     except Exception as e:
@@ -308,419 +260,424 @@ def rag_flow(state: ChatState):
 
 
 def rag_reframe_node(state: ChatState):
-    """LLM node to answer based on retrieved documents"""
     if not state.get("rag_docs"):
         return {"messages": [AIMessage(content="No relevant information found in the documents.")]}
-
-    context = "\n\n".join(d.page_content for d in state["rag_docs"][:3])
-    question = state["messages"][-1].content
-    prompt = f"""
-Answer the question using ONLY the context below.
-Be concise and helpful.
-
-Context:
-{context}
-
-Question:
-{question}
-
-Answer:
-"""
+    context  = "\n\n".join(d.page_content for d in state["rag_docs"][:3])
+    question = ""
+    for msg in reversed(state["messages"]):
+        if getattr(msg, "type", None) == "human":
+            question = msg.content
+            break
     try:
-        answer = llm.invoke(prompt).content
+        answer = llm.invoke(
+            f"Answer using ONLY this context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
+        ).content
         return {"messages": [AIMessage(content=answer)]}
     except Exception as e:
-        return {"messages": [AIMessage(content=f"Error generating answer: {str(e)}")]}
+        return {"messages": [AIMessage(content=f"Error: {e}")]}
 
 
-# =====================================================
-# EMAIL NODES
-# =====================================================
 def extract_email_info(state: ChatState):
-    """Extract structured email info from tool call"""
     try:
-        last_msg = state["messages"][-1]
-        if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-            args = last_msg.tool_calls[0]["args"]
-            return {
-                "to_hint": args.get("to_hint"),
-                "subject_hint": args.get("subject_hint"),
-                "body_hint": args.get("body_hint"),
-                "cc": args.get("cc"),
-                "bcc": args.get("bcc")
-            }
+        for msg in reversed(state["messages"]):
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc["name"] == "gmail_send_intent":
+                        a = tc["args"]
+                        return {
+                            "to_hint":      a.get("to_hint"),
+                            "subject_hint": a.get("subject_hint"),
+                            "body_hint":    a.get("body_hint"),
+                            "cc":           a.get("cc"),
+                            "bcc":          a.get("bcc"),
+                        }
     except Exception as e:
         return {"email_error": str(e)}
     return state
 
 
 def find_recipients(state: ChatState):
-    """Find eligible users in Database based on to_hint"""
     try:
-        users = list(
-            UsersModel.find(
-                {
-                    "org": state["org"],
-                    "$or": [
-                        {"username": {"$regex": state["to_hint"], "$options": "i"}},
-                        {"name": {"$regex": state["to_hint"], "$options": "i"}},
-                    ],
-                    "email": {"$ne": state["user_email"]},
-                },
-                {"_id": 0},
-            )
-        )
+        users = list(UsersModel.find(
+            {
+                "org": state["org"],
+                "$or": [
+                    {"username": {"$regex": state["to_hint"], "$options": "i"}},
+                    {"name":     {"$regex": state["to_hint"], "$options": "i"}},
+                ],
+                "email": {"$ne": state["user_email"]},
+            },
+            {"_id": 0},
+        ))
         return {"eligible_users": users}
     except Exception as e:
         return {"email_error": str(e), "eligible_users": []}
 
 
 def select_recipient(state: ChatState):
-    """Handle recipient selection with interrupt for user choice or manual entry"""
     users = state.get("eligible_users", [])
-    
     if not users:
         manual_email = interrupt({
-            "type": "MANUAL_EMAIL_INPUT",
-            "message": "No matching recipients found in your organization. Please enter the recipient's email address:"
+            "type":    "MANUAL_EMAIL_INPUT",
+            "message": "No matching recipients found. Please enter the recipient's email address:",
         })
         return {"manual_email": manual_email, "selected_user": None}
-
     elif len(users) == 1:
         return {"selected_user": users[0], "manual_email": None}
     else:
         choice = interrupt({
-            "type": "USER_CHOICE",
+            "type":    "USER_CHOICE",
             "message": "Multiple recipients found. Please select one:",
             "options": [
-                {
-                    "index": i,
-                    "username": u["username"],
-                    "name": u.get("name", ""),
-                    "email": u["email"]
-                }
+                {"index": i, "username": u["username"],
+                 "name": u.get("name", ""), "email": u["email"]}
                 for i, u in enumerate(users)
-            ]
+            ],
         })
-        
         for i, u in enumerate(users):
-            if choice == u["username"] or choice == str(i) or choice == u["email"]:
+            if choice in (u["username"], str(i), u["email"]):
                 return {"selected_user": u, "manual_email": None}
         return {"selected_user": users[0], "manual_email": None}
 
 
 def generate_body_node(state: ChatState):
-    """Generate professional email body from hints"""
-    prompt = f"""Write a concise professional email.
-
-Subject: {state['subject_hint']}
-Context: {state['body_hint']}
-
-Email body:"""
-    
+    prompt = (
+        f"Write a concise professional email.\n"
+        f"Subject: {state['subject_hint']}\nContext: {state['body_hint']}\n\nEmail body:"
+    )
     try:
-        email_body = llm.invoke(prompt).content
-        return {"email_body": email_body}
+        return {"email_body": llm.invoke(prompt).content}
     except Exception as e:
         return {"email_error": str(e)}
 
 
 def confirm_body_node(state: ChatState):
-    """Ask user to confirm or edit email body with interrupt"""
-    recipient = state.get("selected_user", {}).get("email") if state.get("selected_user") else state.get("manual_email")
+    recipient = (
+        state.get("selected_user", {}).get("email")
+        if state.get("selected_user")
+        else state.get("manual_email")
+    )
     confirmed = interrupt({
-        "type": "EMAIL_BODY_CONFIRM",
-        "message": f"Here's the email I've drafted. Would you like to send it or make changes?",
+        "type":       "EMAIL_BODY_CONFIRM",
+        "message":    "Here's the email I've drafted. Send it or make changes?",
         "email_body": state.get("email_body", ""),
-        "subject": state.get("subject_hint", ""),
-        "recipient": recipient
+        "subject":    state.get("subject_hint", ""),
+        "recipient":  recipient,
     })
-    
-    if confirmed.lower() in ["edit", "no", "change", "modify"]:
+    if confirmed.lower() in ("edit", "no", "change", "modify"):
         new_body = interrupt({
-            "type": "EMAIL_BODY_EDIT",
-            "message": "Please provide the corrected email body or describe the changes you'd like:",
-            "current_body": state.get("email_body", "")
+            "type":         "EMAIL_BODY_EDIT",
+            "message":      "Provide the corrected body or describe the changes:",
+            "current_body": state.get("email_body", ""),
         })
         if len(new_body.split()) < 20:
-            prompt = f"""Original email:
-{state.get('email_body', '')}
-
-User's edit request:
-{new_body}
-
-Please provide the edited email incorporating the user's changes.
-Edited email:"""
+            prompt = (
+                f"Original email:\n{state.get('email_body', '')}\n\n"
+                f"Edit request:\n{new_body}\n\nEdited email:"
+            )
             try:
-                edited_body = llm.invoke(prompt).content
-                return {"email_body": edited_body}
-            except:
+                return {"email_body": llm.invoke(prompt).content}
+            except Exception:
                 return {"email_body": new_body}
-        else:
-            return {"email_body": new_body}
+        return {"email_body": new_body}
     return state
 
 
-# =====================================================
-# GMAIL AUTH
-# =====================================================
+
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
-
 def build_gmail_oauth_flow():
-    """Build Gmail OAuth flow"""
     return Flow.from_client_config(
-        {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [GOOGLE_REDIRECT_URI],
-            }
-        },
+        {"web": {
+            "client_id":     GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri":      "https://accounts.google.com/o/oauth2/auth",
+            "token_uri":     "https://oauth2.googleapis.com/token",
+            "redirect_uris": [GOOGLE_REDIRECT_URI],
+        }},
         scopes=GMAIL_SCOPES,
         redirect_uri=GOOGLE_REDIRECT_URI,
     )
 
 
 def ensure_gmail_auth(state: ChatState):
-    """Ensure valid Gmail OAuth token exists, interrupt if needed"""
-    token = state.get("gmail_access_token")
+    token  = state.get("gmail_access_token")
     expiry = state.get("gmail_token_expiry")
     if token and expiry:
         try:
             if datetime.fromisoformat(expiry) > datetime.now(timezone.utc):
                 return state
-        except:
+        except Exception:
             pass
-    
     interrupt({
-        "type": "GMAIL_AUTH_REQUIRED",
-        "message": "Gmail authentication is required to send emails. Please authorize access.",
-        "auth_start_endpoint": "/chat/gmail/auth/start"
+        "type":    "GMAIL_AUTH_REQUIRED",
+        "message": "Gmail authentication required. Please authorize access.",
+        "auth_start_endpoint": "/chat/gmail/auth/start",
     })
     return state
 
 
 @router.get("/gmail/auth/start")
 def gmail_auth_start(thread_id: str):
-    """Start Gmail OAuth flow"""
-    flow = build_gmail_oauth_flow()
+    flow     = build_gmail_oauth_flow()
     auth_url, _ = flow.authorization_url(
-        access_type="offline",
-        prompt="consent",
-        state=thread_id 
+        access_type="offline", prompt="consent", state=thread_id
     )
     return {"auth_url": auth_url}
 
 
 @router.get("/gmail/auth/callback")
 def gmail_auth_callback(code: str, state: str):
-    """Handle Gmail OAuth callback"""
     try:
         flow = build_gmail_oauth_flow()
         flow.fetch_token(code=code)
         creds = flow.credentials
-        thread_id = state 
-        config = {"configurable": {"thread_id": thread_id}}
-        app_graph.update_state(config, {
-            "gmail_access_token": creds.token,
-            "gmail_token_expiry": creds.expiry.isoformat() if creds.expiry else None
-        })
-        app_graph.stream(Command(resume=None), config)
-        
         return {
-            "success": True,
-            "thread_id": thread_id,
-            "message": "Authentication successful. Returning to chat..."
+            "success":            True,
+            "thread_id":          state,
+            "gmail_access_token": creds.token,
+            "gmail_token_expiry": creds.expiry.isoformat() if creds.expiry else None,
+            "message":            "Authentication successful.",
         }
     except Exception as e:
         return {"error": str(e)}
 
 
 def send_email_node(state: ChatState):
-    """Send email using Gmail API"""
     try:
-        to_email = state["selected_user"]["email"] if state.get("selected_user") else state["manual_email"]
-        message = f"To: {to_email}\n"
-        if state.get("cc"):
-            message += f"Cc: {state['cc']}\n"
-        if state.get("bcc"):
-            message += f"Bcc: {state['bcc']}\n"
-        message += f"Subject: {state['subject_hint']}\n\n"
-        message += state['email_body']
-        raw = base64.urlsafe_b64encode(message.encode()).decode()
-        creds = Credentials(token=state["gmail_access_token"])
+        to_email = (
+            state["selected_user"]["email"]
+            if state.get("selected_user")
+            else state["manual_email"]
+        )
+        msg  = f"To: {to_email}\n"
+        if state.get("cc"):  msg += f"Cc: {state['cc']}\n"
+        if state.get("bcc"): msg += f"Bcc: {state['bcc']}\n"
+        msg += f"Subject: {state['subject_hint']}\n\n{state['email_body']}"
+        raw     = base64.urlsafe_b64encode(msg.encode()).decode()
+        creds   = Credentials(token=state["gmail_access_token"])
         service = build("gmail", "v1", credentials=creds)
         service.users().messages().send(userId="me", body={"raw": raw}).execute()
-        
         return {
-            "messages": [AIMessage(content=f"✓ Email sent successfully to {to_email}!")],
-            "email_sent": True
+            "messages":   [AIMessage(content=f"Email sent successfully to {to_email}!")],
+            "email_sent": True,
         }
     except Exception as e:
         return {
-            "messages": [AIMessage(content=f"Failed to send email: {str(e)}")],
+            "messages":    [AIMessage(content=f"Failed to send email: {e}")],
             "email_error": str(e),
-            "email_sent": False
+            "email_sent":  False,
         }
 
 
-# =====================================================
-# GRAPH 
-# =====================================================
 graph = StateGraph(ChatState)
 
-graph.add_node("chat", chat_node)
-graph.add_node("tools", tool_node)
-
-# RAG nodes
-graph.add_node("docRag", rag_flow)
-graph.add_node("rag_reframe", rag_reframe_node)
-
-# Email nodes
-graph.add_node("extract_email", extract_email_info)
-graph.add_node("find_recipients", find_recipients)
-graph.add_node("select_recipient", select_recipient)
-graph.add_node("generate_body", generate_body_node)
-graph.add_node("confirm_body", confirm_body_node)
-graph.add_node("ensure_auth", ensure_gmail_auth)
-graph.add_node("send_email", send_email_node)
-
-# Calendar nodes
+graph.add_node("chat",                    chat_node)
+graph.add_node("tools",                   tool_node)
+graph.add_node("docRag",                  rag_flow)
+graph.add_node("rag_reframe",             rag_reframe_node)
+graph.add_node("extract_email",           extract_email_info)
+graph.add_node("find_recipients",         find_recipients)
+graph.add_node("select_recipient",        select_recipient)
+graph.add_node("generate_body",           generate_body_node)
+graph.add_node("confirm_body",            confirm_body_node)
+graph.add_node("ensure_auth",             ensure_gmail_auth)
+graph.add_node("send_email",              send_email_node)
 graph.add_node("extract_calendar_intent", extract_calendar_intent)
-graph.add_node("create_calendar_event", create_calendar_event_node)
-
+graph.add_node("create_calendar_event",   create_calendar_event_node)
 
 graph.add_edge(START, "chat")
-graph.add_conditional_edges("chat", tools_condition, {"tools": "tools", "end": END})
-graph.add_conditional_edges("tools", route_after_tool)
+graph.add_conditional_edges("chat", tools_condition, {"tools": "tools", END: END})
+graph.add_conditional_edges(
+    "tools", route_after_tool,
+    {"extract_email": "extract_email", "docRag": "docRag",
+     "extract_calendar_intent": "extract_calendar_intent", "chat": "chat"}
+)
+graph.add_edge("docRag",                   "rag_reframe")
+graph.add_edge("rag_reframe",              END)
+graph.add_edge("extract_email",            "find_recipients")
+graph.add_edge("find_recipients",          "select_recipient")
+graph.add_edge("select_recipient",         "generate_body")
+graph.add_edge("generate_body",            "confirm_body")
+graph.add_edge("confirm_body",             "ensure_auth")
+graph.add_edge("ensure_auth",              "send_email")
+graph.add_edge("send_email",               END)
+graph.add_edge("extract_calendar_intent",  "create_calendar_event")
+graph.add_edge("create_calendar_event",    END)
 
-# RAG flow
-graph.add_edge("docRag", "rag_reframe")
-graph.add_edge("rag_reframe", END)
-
-# Email flow - complete chain
-graph.add_edge("extract_email", "find_recipients")
-graph.add_edge("find_recipients", "select_recipient")
-graph.add_edge("select_recipient", "generate_body")
-graph.add_edge("generate_body", "confirm_body")
-graph.add_edge("confirm_body", "ensure_auth")
-graph.add_edge("ensure_auth", "send_email")
-graph.add_edge("send_email", END)
-
-# Calendar flow
-graph.add_edge("extract_calendar_intent", "create_calendar_event")
-graph.add_edge("create_calendar_event", END)
 app_graph = graph.compile(checkpointer=checkpointer)
 
 
-# =====================================================
-# API ENDPOINTS
-# =====================================================
+def _sse_stream(input_payload, config):
+    """
+    Core SSE generator shared by /stream for both new messages and resumes.
+    - input_payload: {"messages": [HumanMessage(...)]}  for new turns
+                     Command(resume=value)              for interrupt resumes
+    Yields raw SSE strings.
+    """
+    for chunk, metadata in app_graph.stream(
+        input_payload, config, stream_mode="messages"
+    ):
+        if (
+            isinstance(chunk, AIMessage)
+            and chunk.content
+            and not getattr(chunk, "tool_calls", None)
+        ):
+            payload = {"role": "assistant", "content": chunk.content}
+            yield f"event: message\ndata: {json.dumps(payload)}\n\n"
+
+    current_state = app_graph.get_state(config)
+    if current_state.next:
+        for task in current_state.tasks:
+            if task.interrupts:
+                for idata in task.interrupts:
+                    yield f"event: interrupt\ndata: {json.dumps(idata.value)}\n\n"
+                return
+
+    yield f"event: end\ndata: {json.dumps({'status': 'complete'})}\n\n"
+
+
+class ChatRequest(BaseModel):
+    thread_id:  str
+    message:    str
+    user_email: str
+    org:        str
+
+class ResumeRequest(BaseModel):
+    thread_id:    str
+    user_input:   Optional[str]  = None
+    state_update: Optional[dict] = None
+
+
+@router.post("/message")
+def send_message(req: ChatRequest):
+    """
+    Stores credentials into graph state (first message only) and
+    holds the message text in _pending_messages for /stream to pick up.
+
+    KEY: does NOT call app_graph.stream() or add the HumanMessage via
+    update_state — that would cause the message to be in the graph twice
+    when /stream also passes it in as input_payload.
+    """
+    config = {"configurable": {"thread_id": req.thread_id}}
+    state  = app_graph.get_state(config)
+
+    if not state.values:
+        app_graph.update_state(config, {
+            "messages":   [],
+            "user_email": req.user_email,
+            "org":        req.org,
+        })
+    elif not state.values.get("user_email"):
+        app_graph.update_state(config, {
+            "user_email": req.user_email,
+            "org":        req.org,
+        })
+
+    _pending_messages[req.thread_id] = req.message
+    return {"status": "processing", "thread_id": req.thread_id}
+
 
 @router.get("/stream")
 def chat_stream(request: Request):
-    """Stream chat responses with interrupt handling"""
+    """
+    Single SSE endpoint for both new turns and interrupt resumes.
+    Priority: pending resume > pending message.
+    """
     thread_id = request.query_params.get("thread_id")
-    
+
     def event_generator():
         config = {"configurable": {"thread_id": thread_id}}
-        for chunk in app_graph.stream(None, config, stream_mode="values"):
-            state = app_graph.get_state(config)
-            if state.next:  
-                for task in state.tasks:
-                    if task.interrupts:
-                        for interrupt_data in task.interrupts:
-                            yield f"event: interrupt\ndata: {json.dumps(interrupt_data.value)}\n\n"
-                        return
-            
-            if "messages" in chunk and chunk["messages"]:
-                last_msg = chunk["messages"][-1]
-                data = {
-                    "role": getattr(last_msg, "role", "assistant"),
-                    "content": last_msg.content
-                }
-                yield f"event: message\ndata: {json.dumps(data)}\n\n"
-        
-        yield f"event: end\ndata: {json.dumps({'status': 'complete'})}\n\n"
-    
+
+        pending_resume = _pending_resumes.pop(thread_id, None)
+        if pending_resume:
+            if pending_resume["type"] == "resume":
+                input_payload = Command(resume=pending_resume["value"])
+            else:
+                input_payload = Command(resume=None)
+            yield from _sse_stream(input_payload, config)
+            return
+
+        message_text = _pending_messages.pop(thread_id, None)
+        if not message_text:
+            yield f"event: end\ndata: {json.dumps({'status': 'complete'})}\n\n"
+            return
+        input_payload = {"messages": [HumanMessage(content=message_text)]}
+        yield from _sse_stream(input_payload, config)
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "X-Thread-Id": thread_id,
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive"
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
-
-
-class ResumeRequest(BaseModel):
-    thread_id: str
-    value: str
 
 
 @router.post("/resume")
 def resume_graph(req: ResumeRequest):
-    """Resume graph execution after an interrupt with user's response"""
+    """
+    Plain POST — NOT streaming.
+    Stores the resume instruction so /stream can pick it up.
+
+    Streamlit flow:
+      1. api_resume()  → POST /resume   (this endpoint, stores pending)
+      2. stream_chat() → GET  /stream   (picks up pending, streams response)
+    """
     config = {"configurable": {"thread_id": req.thread_id}}
-    
-    try:
-        result = None
-        for chunk in app_graph.stream(Command(resume=req.value), config, stream_mode="values"):
-            state = app_graph.get_state(config)
-            if state.next:
-                for task in state.tasks:
-                    if task.interrupts:
-                        for interrupt_data in task.interrupts:
-                            return {
-                                "status": "interrupted",
-                                "data": interrupt_data.value
-                            }
-            result = chunk
-        
-        return {"status": "complete", "result": result}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+
+    if req.state_update:
+        app_graph.update_state(config, req.state_update)
+        _pending_resumes[req.thread_id] = {"type": "state_only"}
+    else:
+        _pending_resumes[req.thread_id] = {
+            "type":  "resume",
+            "value": req.user_input,
+        }
+
+    return {"status": "resuming", "thread_id": req.thread_id}
 
 
 @router.get("/threads/{thread_id}")
 def get_thread_messages(thread_id: str):
-    """Get all messages for a specific thread"""
+    """
+    Returns conversation history.
+    Uses msg.type (not msg.role) — LangChain messages expose .type, not .role.
+    Filters out tool messages and tool-call-only AI messages so only
+    visible user/assistant text is returned.
+    """
     config = {"configurable": {"thread_id": thread_id}}
-    state = app_graph.get_state(config)
-    
+    state  = app_graph.get_state(config)
     if not state or not state.values:
         return {"messages": []}
-    
-    messages = state.values.get("messages", [])
-    return {
-        "messages": [
-            {
-                "role": getattr(msg, "role", "assistant"),
-                "content": msg.content
-            }
-            for msg in messages
-        ]
-    }
+
+    result = []
+    for msg in state.values.get("messages", []):
+        msg_type = getattr(msg, "type", None)
+        if msg_type == "human":
+            result.append({"role": "user", "content": msg.content})
+        elif (
+            msg_type == "ai"
+            and msg.content
+            and not getattr(msg, "tool_calls", None)
+        ):
+            result.append({"role": "assistant", "content": msg.content})
+    return {"messages": result}
+
 
 
 @router.get("/threads")
 def list_all_threads():
-    """List all available thread IDs"""
     all_threads = set()
     for checkpoint in checkpointer.list(None):
-        if checkpoint.config and "configurable" in checkpoint.config and "thread_id" in checkpoint.config["configurable"]:
-            all_threads.add(checkpoint.config["configurable"]["thread_id"])
+        cfg = checkpoint.config
+        if cfg and "configurable" in cfg and "thread_id" in cfg["configurable"]:
+            all_threads.add(cfg["configurable"]["thread_id"])
     return {"threads": list(all_threads)}
 
 
 def retrieve_all_threads():
-    """Helper function to retrieve all threads"""
     all_threads = set()
     for checkpoint in checkpointer.list(None):
-        if checkpoint.config and "configurable" in checkpoint.config and "thread_id" in checkpoint.config["configurable"]:
-            all_threads.add(checkpoint.config["configurable"]["thread_id"])
+        cfg = checkpoint.config
+        if cfg and "configurable" in cfg and "thread_id" in cfg["configurable"]:
+            all_threads.add(cfg["configurable"]["thread_id"])
     return list(all_threads)

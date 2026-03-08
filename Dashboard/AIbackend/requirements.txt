@@ -9,8 +9,16 @@ dotenv
 
 langchain
 langchain-community
+langchain-mongodb
+langchain-core
 
 langgraph
+duckduckgo-search
+google-auth-oauthlib
+google-api-python-client
+
+pytz
+dateparser
 
 sentence-transformers
 huggingface-hub

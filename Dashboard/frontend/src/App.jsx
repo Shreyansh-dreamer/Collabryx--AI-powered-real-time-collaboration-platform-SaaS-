@@ -4,7 +4,7 @@ import Navbar from './Navbar.jsx';
 import Docs from './Documents/Docs.jsx';
 import Editor from './Editor/Editor.jsx';
 import GroupChat from './chatSpace/GroupChat.jsx';
-import Chatbot from './Chatbot/chatbot.jsx';
+import Chatbot from './Chatbot/Chatbot.jsx';
 
 function App() {
   const [theme, setTheme] = useState(() => {

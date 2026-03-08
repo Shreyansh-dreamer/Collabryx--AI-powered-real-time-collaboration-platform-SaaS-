@@ -2,9 +2,11 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from pydantic import BaseModel
+from langchain_groq import ChatGroq
 
 import tempfile
 import os
+import sqlite3
 
 from routes import chat
 from langchain_community.document_loaders import PyPDFLoader
@@ -14,6 +16,10 @@ from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.prompts import PromptTemplate  
 from langchain_core.output_parsers import StrOutputParser  
 from langchain_huggingface import HuggingFaceEndpoint
+from langgraph.checkpoint.sqlite import SqliteSaver
+
+conn = sqlite3.connect(database="chatbot.db", check_same_thread=False)
+checkpointer = SqliteSaver(conn=conn)
 
 app = FastAPI()
 
@@ -24,7 +30,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:3000",
-        "*"
+        "http://localhost:8501"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -33,9 +39,21 @@ app.add_middleware(
 
 app.include_router(chat.router)
 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
 
 MONGO_URI = os.getenv("MONGO_URL")
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+print("="*50)
+print(f"GROQ_API_KEY exists: {GROQ_API_KEY is not None}")
+print(f"GROQ_API_KEY length: {len(GROQ_API_KEY) if GROQ_API_KEY else 0}")
+print(f"GROQ_API_KEY starts with 'gsk_': {GROQ_API_KEY.startswith('gsk_') if GROQ_API_KEY else False}")
+print(f"First 10 chars: {GROQ_API_KEY[:10] if GROQ_API_KEY else 'NONE'}")
+print("="*50)
 
 
 embeddings = HuggingFaceEmbeddings(
@@ -69,12 +87,10 @@ def health():
 
 
 
-llm = HuggingFaceEndpoint(
-    repo_id="mistralai/Mistral-7B-Instruct-v0.2",
-    huggingfacehub_api_token=HF_API_KEY,
-    # task="text-generation",
-    max_new_tokens=512,
-    temperature=0.1,
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=GROQ_API_KEY,
+    temperature=0.1,  
 )
 
 class CodeCompletionRequest(BaseModel):
