@@ -1,168 +1,93 @@
-import json, re, time, random, string
+import json, re, time, random, string, os
 import requests
 import streamlit as st
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
-API_BASE    = "http://localhost:8000"
+API_BASE    = os.getenv("API_BASE",  "http://localhost:8000")
+AUTH_BASE   = os.getenv("AUTH_BASE", "http://localhost:3000")
 CHAT_BASE   = f"{API_BASE}/chat"
-AUTH_BASE   = "http://localhost:3000"
 MAX_THREADS = 10
-THEME       = "light"   # change to "dark" for dark mode
-DARK        = THEME == "dark"
 
 st.set_page_config(
-    page_title="Multi Utility Chatbot", page_icon="🤖",
-    layout="wide", initial_sidebar_state="collapsed",
+    page_title="CogniSync AI",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
-# ── THEME TOKENS ──────────────────────────────────────────────────────────────
-if DARK:
-    PAGE_BG = "linear-gradient(135deg,#0f172a 0%,#111827 60%,#1e1b4b 100%)"
-    SB_BG = "rgba(15,23,42,.97)"; SB_BDR = "#1e293b"; HDR_BG = "rgba(15,23,42,.7)"
-    IN_BG = "#1e293b"; IN_BDR = "#334155"
-    BOT_BG = "#1e293b"; BOT_COLOR = "#e2e8f0"
-    USR_BG = "linear-gradient(135deg,#1d4ed8,#1e40af)"
-    TP = "#f1f5f9"; TS = "#94a3b8"; TM = "#64748b"
-    T_HOVER = "#1e293b"
-    T_ACT_BG = "linear-gradient(135deg,rgba(37,99,235,.25),rgba(109,40,217,.25))"
-    T_ACT_BDR = "#3b82f6"; T_ACT_C = "#ffffff"
-    Y_BG = "rgba(113,63,18,.25)"; Y_BDR = "#92400e"
-    BL_BG = "rgba(30,58,138,.25)"; BL_BDR = "#1e40af"
-    THINK_BG = "#1e293b"; SCR = "#334155"; BADGE_BG = "#334155"; TOG_BG = "#1e293b"
-    LINK_C = "#60a5fa"; EXP_HEAD = "#1e293b"; AUTH_CARD_BG = "#1e293b"
-else:
-    PAGE_BG = "linear-gradient(135deg,#f8fafc 0%,#eff6ff 50%,#f8fafc 100%)"
-    SB_BG = "rgba(255,255,255,.97)"; SB_BDR = "#e2e8f0"; HDR_BG = "rgba(255,255,255,.7)"
-    IN_BG = "#ffffff"; IN_BDR = "#e2e8f0"
-    BOT_BG = "#ffffff"; BOT_COLOR = "#0f172a"
-    USR_BG = "linear-gradient(135deg,#3b82f6,#2563eb)"
-    TP = "#0f172a"; TS = "#64748b"; TM = "#94a3b8"
-    T_HOVER = "#f1f5f9"
-    T_ACT_BG = "linear-gradient(135deg,rgba(59,130,246,.12),rgba(37,99,235,.12))"
-    T_ACT_BDR = "#93c5fd"; T_ACT_C = "#1d4ed8"
-    Y_BG = "#fefce8"; Y_BDR = "#fde68a"
-    BL_BG = "#eff6ff"; BL_BDR = "#bfdbfe"
-    THINK_BG = "#ffffff"; SCR = "#cbd5e1"; BADGE_BG = "#f1f5f9"; TOG_BG = "#f1f5f9"
-    LINK_C = "#2563eb"; EXP_HEAD = "#f8fafc"; AUTH_CARD_BG = "#ffffff"
+_DEFAULTS = dict(
+    threads=[], current_thread=None, messages={}, thread_names={},
+    interrupt_data=None, interrupt_type=None, is_processing=False,
+    user_email=None, user_org=None, auth_checked=False, threads_loaded=False,
+    edit_box_open=False, edit_body_text="",
+)
+for _k, _v in _DEFAULTS.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
 
-PRIMARY = "linear-gradient(135deg,#3b82f6,#6366f1)"
+ss = st.session_state
 
-# ── GLOBAL CSS ────────────────────────────────────────────────────────────────
+PAGE_BG = "#080d18"; SB_BG  = "#0d1424"; SB_BDR = "#1a2540"
+HDR_BG  = "#0d1424"; IN_BG  = "#111c33"; IN_BDR = "#1e3058"
+BOT_BG  = "#111c33"; BOT_COL= "#e2eaf8"; USR_BG = "#1a4fd6"
+TP      = "#e8edf8"; TS     = "#8896b0"; TM     = "#4a5a78"
+BTN_BG  = "#111c33"; BTN_HV = "#1a2a4a"; BTN_ACT= "#1a4fd6"
+BADGE_BG= "#1a2540"; SCR    = "#1e3058"
+Y_BG    = "#1f1500"; Y_BDR  = "#5c3000"
+BL_BG   = "#060d22"; BL_BDR = "#0d2255"
+ACCENT  = "#3b82f6"; ACCENT2= "#6366f1"
+
 st.markdown(f"""
 <style>
-html,body{{margin:0!important;padding:0!important;overflow:hidden!important;height:100%!important;width:100%!important;}}
-#root,.stApp{{margin:0!important;padding:0!important;background:transparent!important;}}
-header[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],
-[data-testid="stStatusWidget"],footer,[data-testid="stBottom"],
-[data-testid="stSidebar"],[data-testid="collapsedControl"]{{display:none!important;height:0!important;width:0!important;}}
-[data-testid="stAppViewContainer"]{{padding:0!important;margin:0!important;background:{PAGE_BG}!important;min-height:100vh!important;}}
-section[data-testid="stMain"]{{padding:0!important;margin:0!important;width:100vw!important;background:transparent!important;}}
-.main .block-container,
-[data-testid="stAppViewContainer"]>.main>.block-container,
-section[data-testid="stMain"]>.block-container{{
-  padding:0!important;margin:0!important;max-width:100vw!important;width:100vw!important;
-}}
-[data-testid="stMarkdownContainer"]{{margin:0!important;padding:0!important;line-height:inherit!important;}}
-[data-testid="stHorizontalBlock"]{{gap:0!important;align-items:stretch!important;}}
-[data-testid="column"]{{padding:0!important;}}
-
-/* sidebar */
-.sb-wrap{{background:{SB_BG};border-right:1px solid {SB_BDR};min-height:100vh;padding:16px 12px;backdrop-filter:blur(20px);}}
-.sb-logo{{width:44px;height:44px;border-radius:12px;background:{PRIMARY};display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 14px rgba(99,102,241,.4);}}
-.sb-label{{display:flex;align-items:center;justify-content:space-between;padding:8px 2px 6px;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:{TM};}}
-.sb-badge{{font-size:11px;padding:2px 8px;border-radius:20px;background:{BADGE_BG};color:{TS};}}
-
-/* topbar */
-.topbar{{border-bottom:1px solid {SB_BDR};padding:13px 18px;display:flex;align-items:center;gap:12px;background:{HDR_BG};backdrop-filter:blur(16px);margin-bottom:0;}}
-.topbar-ic{{width:36px;height:36px;border-radius:10px;background:{'linear-gradient(135deg,rgba(99,102,241,.2),rgba(236,72,153,.2))' if DARK else 'linear-gradient(135deg,#ede9fe,#fce7f3)'};display:flex;align-items:center;justify-content:center;font-size:18px;}}
-.topbar-ttl{{font-size:18px;font-weight:700;color:{TP};font-family:'Segoe UI',system-ui,sans-serif;}}
-
-/* messages */
-.cb-msgs{{overflow-y:auto;padding:18px 18px 8px;height:calc(100vh - 146px);background:transparent;}}
-.cb-msgs-inner{{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:14px;}}
-.cb-empty{{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 0;text-align:center;}}
-.cb-empty-ic{{width:80px;height:80px;border-radius:20px;background:{'linear-gradient(135deg,rgba(99,102,241,.2),rgba(139,92,246,.2))' if DARK else 'linear-gradient(135deg,#dbeafe,#ede9fe)'};display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:14px;}}
-.cb-empty h3{{font-size:22px;font-weight:700;margin:0 0 6px;color:{TP};font-family:'Segoe UI',system-ui,sans-serif;}}
-.cb-empty p{{font-size:13px;color:{TS};margin:0;}}
-
-/* bubbles */
-.cb-row{{display:flex;gap:10px;align-items:flex-end;}}
-.cb-row.user{{flex-direction:row-reverse;}}
-.cb-av{{width:32px;height:32px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;}}
-.cb-av.bot{{background:{PRIMARY};}}
-.cb-av.user{{background:linear-gradient(135deg,#10b981,#0d9488);}}
-.cb-bub{{max-width:620px;border-radius:18px;padding:11px 17px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word;font-family:'Segoe UI',system-ui,sans-serif;}}
-.cb-bub.bot{{background:{BOT_BG};color:{BOT_COLOR};border-bottom-left-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.07);}}
-.cb-bub.user{{background:{USR_BG};color:#fff;border-bottom-right-radius:4px;}}
-.cb-bub a{{color:{LINK_C};text-decoration:underline;}}
-
-/* thinking */
-.cb-think{{display:flex;gap:10px;align-items:center;padding:2px 0 6px;}}
-.cb-tbub{{background:{THINK_BG};border-radius:18px;border-bottom-left-radius:4px;padding:11px 17px;display:flex;align-items:center;gap:10px;font-size:13px;color:{TS};box-shadow:0 2px 10px rgba(0,0,0,.07);}}
-.cb-dots{{display:flex;gap:4px;}}
-.cb-dot{{width:7px;height:7px;border-radius:50%;background:#6366f1;animation:cbB 1.2s ease-in-out infinite;}}
-.cb-dot:nth-child(2){{animation-delay:.2s;}} .cb-dot:nth-child(3){{animation-delay:.4s;}}
-@keyframes cbB{{0%,80%,100%{{transform:translateY(0);opacity:.35;}}40%{{transform:translateY(-6px);opacity:1;}}}}
-
-/* interrupts */
-.cb-int{{border-radius:14px;padding:15px 17px;max-width:660px;margin:0 0 6px 42px;}}
-.cb-int.yellow{{background:{Y_BG};border:1px solid {Y_BDR};}}
-.cb-int.blue{{background:{BL_BG};border:1px solid {BL_BDR};}}
-.cb-int-ttl{{font-weight:700;font-size:14px;margin-bottom:7px;color:{TP};font-family:'Segoe UI',system-ui,sans-serif;}}
-.cb-int-body{{font-size:13px;color:{TS};margin:0 0 10px;line-height:1.6;}}
-.cb-int-pre{{background:{IN_BG};border:1px solid {IN_BDR};border-radius:10px;padding:11px;font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin:0 0 10px;color:{TP};}}
-.cb-auth-link{{display:inline-block;padding:9px 18px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;font-weight:700;}}
-
-/* st widget overrides */
-[data-testid="stTextInput"]>div>div>input{{
-  background:{IN_BG}!important;color:{TP}!important;
-  border:2px solid {IN_BDR}!important;border-radius:14px!important;
-  padding:12px 17px!important;font-size:14px!important;
-  font-family:'Segoe UI',system-ui,sans-serif!important;
-}}
-[data-testid="stTextInput"]>div>div>input:focus{{border-color:#6366f1!important;box-shadow:none!important;}}
-[data-testid="stTextInput"] label{{display:none!important;}}
-[data-testid="stTextInput"]>div{{margin:0!important;padding:0!important;}}
-button[kind="primary"],button[data-testid="baseButton-primary"]{{
-  background:{PRIMARY}!important;border:none!important;border-radius:12px!important;
-  font-weight:700!important;color:#fff!important;box-shadow:0 4px 12px rgba(99,102,241,.35)!important;
-}}
-button[kind="secondary"],button[data-testid="baseButton-secondary"]{{
-  border-radius:11px!important;font-weight:600!important;
-  background:{TOG_BG}!important;border:1px solid {IN_BDR}!important;color:{TP}!important;
-}}
-button[kind="secondary"]:hover{{background:{T_HOVER}!important;}}
-[data-testid="stTextArea"] textarea{{
-  background:{IN_BG}!important;color:{TP}!important;
-  border:1px solid {IN_BDR}!important;border-radius:12px!important;font-size:13px!important;
-}}
-[data-testid="stExpander"]{{border:1px solid {IN_BDR}!important;border-radius:12px!important;background:{IN_BG}!important;}}
-.cb-msgs::-webkit-scrollbar{{width:4px;}}
-.cb-msgs::-webkit-scrollbar-thumb{{background:{SCR};border-radius:4px;}}
-.cb-center{{display:flex;align-items:center;justify-content:center;height:100vh;background:{PAGE_BG};}}
-.cb-auth-card{{background:{AUTH_CARD_BG};border-radius:24px;padding:48px;text-align:center;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.18);}}
-.cb-auth-ic{{width:64px;height:64px;border-radius:50%;background:#dc2626;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 16px;}}
-.cb-auth-card h2{{font-size:22px;font-weight:700;margin:0 0 8px;color:{TP};font-family:'Segoe UI',system-ui,sans-serif;}}
-.cb-auth-card p{{font-size:14px;color:{TS};margin:0 0 28px;}}
-.cb-goto-login{{display:inline-block;padding:12px 28px;border-radius:12px;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;font-size:14px;}}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0;}}
+html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"],
+section[data-testid="stMain"],section[data-testid="stMain"]>.block-container,
+div[data-testid="stMainBlockContainer"]{{
+  background:{PAGE_BG}!important;padding:0!important;margin:0!important;
+  max-width:100vw!important;font-family:'Inter',sans-serif!important;}}
+header,footer,[data-testid="stHeader"],[data-testid="stToolbar"],
+[data-testid="stDecoration"],[data-testid="stStatusWidget"],
+[data-testid="stBottom"],[data-testid="stSidebar"],
+[data-testid="collapsedControl"]{{display:none!important;}}
+[data-testid="stVerticalBlock"]{{gap:0!important;padding:0!important;}}
+[data-testid="stMarkdownContainer"]{{margin:0!important;padding:0!important;}}
+::-webkit-scrollbar{{width:4px;height:4px;}}
+::-webkit-scrollbar-thumb{{background:{SCR};border-radius:4px;}}
+::-webkit-scrollbar-track{{background:transparent;}}
+div.stButton>button{{width:100%;padding:8px 12px;border-radius:10px;border:none;
+  background:{BTN_BG};color:{TP};font-family:'Inter',sans-serif;font-size:12px;
+  font-weight:600;cursor:pointer;text-align:left;transition:background 0.15s;margin-bottom:2px;}}
+div.stButton>button:hover{{background:{BTN_HV};border:none;}}
+div.stButton>button:focus{{outline:none;box-shadow:none;border:none;}}
+div[data-testid="stButton"].new-chat-btn>button{{
+  background:linear-gradient(135deg,{ACCENT},{ACCENT2});color:#fff;font-weight:700;
+  font-size:13px;text-align:center;padding:10px;border-radius:12px;margin-bottom:10px;}}
+div.active-thread>button{{background:{BTN_ACT}!important;color:#fff!important;}}
+div.send-btn>button{{background:linear-gradient(135deg,{ACCENT},{ACCENT2})!important;
+  color:#fff!important;font-size:14px!important;font-weight:700!important;
+  text-align:center!important;padding:10px 20px!important;border-radius:13px!important;width:auto!important;}}
+div.action-btn-blue>button{{background:{ACCENT}!important;color:#fff!important;
+  font-weight:700!important;text-align:center!important;border-radius:9px!important;
+  padding:8px 16px!important;width:auto!important;}}
+div.action-btn-neutral>button{{background:{BTN_BG}!important;color:{TP}!important;
+  font-weight:700!important;text-align:center!important;border-radius:9px!important;
+  padding:8px 16px!important;width:auto!important;}}
+div[data-testid="stTextInput"] input{{background:{IN_BG}!important;color:{TP}!important;
+  border:2px solid {IN_BDR}!important;border-radius:13px!important;
+  font-family:'Inter',sans-serif!important;font-size:14px!important;padding:10px 14px!important;}}
+div[data-testid="stTextInput"] input:focus{{border-color:{ACCENT2}!important;
+  box-shadow:0 0 0 2px rgba(99,102,241,0.2)!important;}}
+div[data-testid="stTextInput"] label{{display:none!important;}}
+div[data-testid="stTextInput"]{{margin:0!important;}}
+div[data-testid="stTextArea"] textarea{{background:{IN_BG}!important;color:{TP}!important;
+  border:1px solid {IN_BDR}!important;border-radius:10px!important;
+  font-family:'Inter',sans-serif!important;font-size:12px!important;padding:8px!important;}}
+div[data-testid="stTextArea"] label{{display:none!important;}}
+div[data-testid="stColumns"]{{gap:8px!important;}}
 </style>
 """, unsafe_allow_html=True)
 
-# ── SESSION STATE ─────────────────────────────────────────────────────────────
-def _init():
-    defs = dict(
-        threads=[], current_thread=None, messages={}, thread_names={},
-        sidebar_open=True, interrupt_data=None, interrupt_type=None,
-        is_processing=False, user_email=None, user_org=None,
-        auth_checked=False, pending_resume=None,
-    )
-    for k, v in defs.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-_init()
-ss = st.session_state
 
-# ── HELPERS ───────────────────────────────────────────────────────────────────
 def gen_id():
     s = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     return f"thread-{int(time.time()*1000)}-{s}"
@@ -170,7 +95,7 @@ def gen_id():
 def make_name(msg):
     if not msg: return "New Conversation"
     w = " ".join(msg.split()[:5])
-    return (w[:40] + "...") if len(w) > 40 else w
+    return (w[:36] + "…") if len(w) > 36 else w
 
 def cur_msgs():
     return ss.messages.get(ss.current_thread, [])
@@ -182,502 +107,405 @@ def add_msg(role, content, tid=None):
 def linkify(text):
     return re.sub(
         r'(https?://\S+)',
-        r'<a href="\1" target="_blank" rel="noopener noreferrer">\1</a>',
+        r'<a href="\1" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;word-break:break-all;">\1</a>',
         text or ""
     )
 
-def create_thread():
-    if len(ss.threads) >= MAX_THREADS:
-        ss.threads.pop()
-    tid = gen_id()
-    ss.threads.insert(0, tid)
-    ss.current_thread = tid
-    ss.messages[tid] = []
-    ss.thread_names[tid] = "New Conversation"
-    ss.interrupt_data = None
-    ss.interrupt_type = None
-    ss.is_processing = False
+def esc(s):
+    return (str(s).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+                  .replace('"',"&quot;").replace("'","&#39;"))
 
-def load_thread(tid):
+def create_thread():
+    if len(ss.threads) >= MAX_THREADS: ss.threads.pop()
+    tid = gen_id()
+    ss.threads.insert(0, tid); ss.current_thread = tid
+    ss.messages[tid] = []; ss.thread_names[tid] = "New Conversation"
+    ss.interrupt_data = None; ss.interrupt_type = None
+    ss.is_processing = False; ss.edit_box_open = False
+
+def switch_thread(tid):
     ss.current_thread = tid
-    ss.interrupt_data = None
-    ss.interrupt_type = None
-    ss.is_processing = False
+    ss.interrupt_data = None; ss.interrupt_type = None
+    ss.is_processing = False; ss.edit_box_open = False
     try:
         r = requests.get(f"{CHAT_BASE}/threads/{tid}", timeout=8)
         msgs = r.json().get("messages", [])
         ss.messages[tid] = msgs
-        if not ss.thread_names.get(tid) or ss.thread_names[tid] == "New Conversation":
-            first = next((m["content"] for m in msgs if m["role"] == "user"), "")
-            if first:
-                ss.thread_names[tid] = make_name(first)
+        first = next((m["content"] for m in msgs if m["role"] == "user"), "")
+        if first: ss.thread_names[tid] = make_name(first)
     except Exception:
-        ss.messages[tid] = []
+        ss.messages.setdefault(tid, [])
 
-# ── AUTH ──────────────────────────────────────────────────────────────────────
 def fetch_user():
     if ss.auth_checked: return
     ss.auth_checked = True
-    params = st.query_params
-    if "email" in params and "org" in params:
-        ss.user_email = params["email"]
-        ss.user_org = params["org"]
-        return
+    p = st.query_params
+    if "email" in p and "org" in p:
+        ss.user_email = p["email"]; ss.user_org = p["org"]; return
     try:
         r = requests.get(f"{AUTH_BASE}/whoAmI", timeout=5)
         if r.ok:
-            d = r.json()
-            ss.user_email = d.get("email")
-            ss.user_org = d.get("org")
-    except Exception:
-        pass
+            d = r.json(); ss.user_email = d.get("email"); ss.user_org = d.get("org")
+    except Exception: pass
 
-def handle_oauth():
-    p = st.query_params
-    code = p.get("code")
-    state = p.get("state")
-    if not code or not state: return
-    try:
-        r = requests.get(f"{CHAT_BASE}/gmail/auth/callback",
-                         params={"code": code, "state": state}, timeout=15)
-        d = r.json()
-        if d.get("gmail_access_token"):
-            if state not in ss.threads:
-                ss.threads.insert(0, state)
-                ss.messages[state] = []
-                ss.thread_names[state] = "Gmail Auth"
-            ss.current_thread = state
-            ss.interrupt_data = None
-            ss.interrupt_type = None
-            ss.is_processing = True
-            ss.pending_resume = {"state_update": {
-                "gmail_access_token": d["gmail_access_token"],
-                "gmail_token_expiry": d.get("gmail_token_expiry"),
-            }}
-            # Preserve email/org params, only remove OAuth code/state
-            existing = dict(st.query_params)
-            existing.pop("code", None)
-            existing.pop("state", None)
-            st.query_params.update(existing)
-            st.rerun()
-    except Exception as e:
-        st.error(f"OAuth error: {e}")
-
-# ── BACKEND ───────────────────────────────────────────────────────────────────
-def api_send(text):
+def api_send_message(text):
     try:
         r = requests.post(f"{CHAT_BASE}/message", json={
             "thread_id": ss.current_thread, "message": text,
             "user_email": ss.user_email, "org": ss.user_org,
         }, timeout=15)
-        r.raise_for_status()
-        return True
+        r.raise_for_status(); return True
     except Exception as e:
-        add_msg("assistant", f"Send error: {e}")
-        return False
+        add_msg("assistant", f"⚠️ Send error: {e}"); return False
 
 def api_resume(payload):
     body = {"thread_id": ss.current_thread}
-    if "state_update" in payload:
-        body["state_update"] = payload["state_update"]
-    else:
-        body["user_input"] = payload.get("user_input", "")
+    if "state_update" in payload: body["state_update"] = payload["state_update"]
+    else: body["user_input"] = payload.get("user_input", "")
     try:
-        requests.post(f"{CHAT_BASE}/resume", json=body, timeout=15)
-        return True
+        r = requests.post(f"{CHAT_BASE}/resume", json=body, timeout=15)
+        r.raise_for_status(); return True
     except Exception as e:
-        add_msg("assistant", f"Resume error: {e}")
-        return False
+        add_msg("assistant", f"⚠️ Resume error: {e}"); return False
 
-# ── STREAMING ─────────────────────────────────────────────────────────────────
-def stream_chat(msg_ph, status_ph):
-    """
-    Consume SSE from /chat/stream, render each message chunk live.
-    Handles 'message', 'interrupt', and 'end' SSE events.
-    Resumes the LangGraph from where it left off if interrupted.
-    """
+def stream_and_collect():
     tid = ss.current_thread
-    url = f"{CHAT_BASE}/stream?thread_id={tid}"
-    seen = set()
+    assistant_content = ""
+    interrupt_payload = None
     try:
-        with requests.get(url, stream=True, timeout=180) as resp:
+        with requests.get(f"{CHAT_BASE}/stream?thread_id={tid}", stream=True, timeout=180) as resp:
             resp.raise_for_status()
-            ev = "message"
-            dl = []
+            ev, dl = "message", []
             for raw in resp.iter_lines(decode_unicode=True):
-                if raw.startswith("event:"):
-                    ev = raw[6:].strip()
-                    dl = []
-                elif raw.startswith("data:"):
-                    dl.append(raw[5:].strip())
+                if raw.startswith("event:"): ev = raw[6:].strip(); dl = []
+                elif raw.startswith("data:"): dl.append(raw[5:].strip())
                 elif raw == "":
-                    ps = "\n".join(dl)
-                    dl = []
-                    if not ps:
-                        ev = "message"
-                        continue
-                    try:
-                        payload = json.loads(ps)
-                    except Exception:
-                        ev = "message"
-                        continue
-
+                    ps = "\n".join(dl); dl = []
+                    if not ps: ev = "message"; continue
+                    try: payload = json.loads(ps)
+                    except Exception: ev = "message"; continue
                     if ev == "message":
-                        role = payload.get("role", "assistant")
                         chunk = payload.get("content", "")
-                        if role and chunk:
-                            msgs = ss.messages.get(tid, [])
-                            if msgs and msgs[-1]["role"] == "assistant" and role == "assistant":
-                                # Append token to existing assistant bubble (streaming)
-                                ss.messages[tid][-1]["content"] += chunk
-                            else:
-                                # First chunk — create new assistant bubble
-                                add_msg(role, chunk, tid)
-                            status_ph.empty()
-                            msg_ph.markdown(build_msgs(), unsafe_allow_html=True)
-
-                    elif ev == "interrupt":
-                        ss.interrupt_data = payload
-                        ss.interrupt_type = payload.get("type")
-                        ss.is_processing = False
-                        status_ph.empty()
-                        return
-
-                    elif ev == "end":
-                        ss.is_processing = False
-                        status_ph.empty()
-                        return
-
+                        if chunk: assistant_content += chunk
+                    elif ev == "interrupt": interrupt_payload = payload; break
+                    elif ev == "end": break
                     ev = "message"
-
     except Exception as e:
-        add_msg("assistant", f"Stream error: {e}", tid)
-        ss.is_processing = False
-        status_ph.empty()
+        return [{"role": "assistant", "content": f"⚠️ Stream error: {e}"}], None
+    new_msgs = []
+    if assistant_content: new_msgs.append({"role": "assistant", "content": assistant_content})
+    return new_msgs, interrupt_payload
 
-# ── HTML BUILDERS ─────────────────────────────────────────────────────────────
-def build_msgs():
-    msgs = cur_msgs()
-    inner = ""
-    if not msgs:
-        inner = (
-            '<div class="cb-empty">'
-            '<div class="cb-empty-ic">&#10024;</div>'
-            '<h3>Start a conversation</h3>'
-            '<p>Search &middot; Email &middot; Calendar &middot; Documents</p>'
-            '</div>'
-        )
-    else:
-        for m in msgs:
-            role = m.get("role", "assistant")
-            content = linkify(m.get("content", ""))
-            av = "&#129302;" if role == "assistant" else "&#128100;"
-            avc = "bot" if role == "assistant" else "user"
-            rc = "user" if role == "user" else ""
-            inner += (
-                f'<div class="cb-row {rc}">'
-                f'<div class="cb-av {avc}">{av}</div>'
-                f'<div class="cb-bub {avc}">{content}</div>'
-                f'</div>'
-            )
-        if ss.is_processing and not ss.interrupt_type:
-            inner += (
-                '<div class="cb-think">'
-                '<div class="cb-av bot">&#129302;</div>'
-                '<div class="cb-tbub">'
-                '<div class="cb-dots">'
-                '<div class="cb-dot"></div>'
-                '<div class="cb-dot"></div>'
-                '<div class="cb-dot"></div>'
-                '</div>'
-                '<span>Thinking&hellip;</span>'
-                '</div></div>'
-            )
-    scroll_js = (
-        '<script>'
-        '(function(){var e=document.getElementById("cbS");'
-        'if(e)e.scrollTop=e.scrollHeight;})();'
-        '</script>'
-    )
-    return (
-        f'<div class="cb-msgs" id="cbS">'
-        f'<div class="cb-msgs-inner">{inner}</div>'
-        f'</div>'
-        f'{scroll_js}'
-    )
+def do_send(text):
+    add_msg("user", text)
+    if len(cur_msgs()) == 1: ss.thread_names[ss.current_thread] = make_name(text)
+    ss.is_processing = True
+    if api_send_message(text):
+        new_msgs, interrupt_payload = stream_and_collect()
+        for m in new_msgs: add_msg(m["role"], m["content"])
+        if interrupt_payload:
+            ss.interrupt_data = interrupt_payload; ss.interrupt_type = interrupt_payload.get("type")
+        else:
+            ss.interrupt_data = None; ss.interrupt_type = None
+    ss.is_processing = False
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────
+def do_resume(payload, user_display_msg=None):
+    if user_display_msg: add_msg("user", user_display_msg)
+    ss.interrupt_data = None; ss.interrupt_type = None; ss.is_processing = True
+    if api_resume(payload):
+        new_msgs, interrupt_payload = stream_and_collect()
+        for m in new_msgs: add_msg(m["role"], m["content"])
+        if interrupt_payload:
+            ss.interrupt_data = interrupt_payload; ss.interrupt_type = interrupt_payload.get("type")
+        else:
+            ss.interrupt_data = None; ss.interrupt_type = None
+    ss.is_processing = False
+
+
 fetch_user()
-handle_oauth()
 
-if not ss.threads:
-    create_thread()
-if not ss.current_thread:
-    ss.current_thread = ss.threads[0]
+if not ss.threads_loaded and ss.user_email:
+    ss.threads_loaded = True
+    try:
+        r = requests.get(f"{CHAT_BASE}/threads", timeout=8)
+        thread_ids = sorted(r.json().get("threads", []), reverse=True)[:MAX_THREADS]
+        for tid in thread_ids:
+            try:
+                tr   = requests.get(f"{CHAT_BASE}/threads/{tid}", timeout=5)
+                msgs = tr.json().get("messages", [])
+                ss.messages[tid] = msgs
+                first = next((m["content"] for m in msgs if m["role"] == "user"), "")
+                ss.thread_names[tid] = make_name(first) if first else "New Conversation"
+                ss.threads.append(tid)
+            except Exception: pass
+    except Exception: pass
 
-# Not-authenticated gate
+if not ss.threads: create_thread()
+if not ss.current_thread: ss.current_thread = ss.threads[0]
+
 if not ss.user_email or not ss.user_org:
-    st.markdown(
-        '<div class="cb-center">'
-        '<div class="cb-auth-card">'
-        '<div class="cb-auth-ic">&#128274;</div>'
-        '<h2>Not Authenticated</h2>'
-        '<p>Please log in to access the chatbot</p>'
-        '<a href="/login" class="cb-goto-login">Go to Login</a>'
-        '</div></div>',
-        unsafe_allow_html=True
-    )
+    st.markdown(f"""
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:{PAGE_BG};">
+      <div style="background:{SB_BG};border:1px solid {SB_BDR};border-radius:20px;padding:48px 40px;
+                  text-align:center;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+        <div style="font-size:44px;margin-bottom:16px;">🔒</div>
+        <h2 style="color:{TP};margin:0 0 8px;font-size:22px;font-weight:700;">Not Authenticated</h2>
+        <p style="color:{TS};margin:0 0 28px;font-size:14px;">Please log in to access CogniSync AI</p>
+        <a href="/login" style="padding:12px 32px;border-radius:12px;
+           background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+           color:#fff;text-decoration:none;font-weight:700;font-size:14px;">Go to Login</a>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
     st.stop()
 
-# ── LAYOUT ────────────────────────────────────────────────────────────────────
-if ss.sidebar_open:
-    sb_col, main_col = st.columns([1, 3.6])
-else:
-    sb_col, main_col = st.columns([0.001, 1])
+st.markdown("""
+<script>
+(function() {
+  if (window.__gmailListenerInstalled) return;
+  window.__gmailListenerInstalled = true;
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'GMAIL_AUTH_SUCCESS') {
+      setTimeout(function() { window.location.reload(); }, 300);
+    }
+  });
+})();
+</script>
+""", unsafe_allow_html=True)
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────────
-with sb_col:
-    if ss.sidebar_open:
-        st.markdown('<div class="sb-wrap">', unsafe_allow_html=True)
+if ss.is_processing:
+    ss.is_processing = False
+    new_msgs, interrupt_payload = stream_and_collect()
+    for m in new_msgs: add_msg(m["role"], m["content"])
+    if interrupt_payload:
+        ss.interrupt_data = interrupt_payload; ss.interrupt_type = interrupt_payload.get("type")
+    else:
+        ss.interrupt_data = None; ss.interrupt_type = None
 
-        h1, h2 = st.columns([1, 1])
-        with h1:
-            st.markdown('<div class="sb-logo">&#10024;</div>', unsafe_allow_html=True)
-        with h2:
-            if st.button("‹", key="sb_close", help="Close sidebar"):
-                ss.sidebar_open = False
-                st.rerun()
 
-        if st.button("＋  New Chat", key="new_chat", use_container_width=True, type="primary"):
-            create_thread()
-            st.rerun()
+sidebar_col, main_col = st.columns([1, 4], gap="small")
 
-        st.markdown(
-            f'<div class="sb-label">'
-            f'<span>Recent Chats</span>'
-            f'<span class="sb-badge">{len(ss.threads)}/{MAX_THREADS}</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+with sidebar_col:
+    st.markdown(f"""
+    <div style="background:{SB_BG};border-right:1px solid {SB_BDR};min-height:100vh;padding:0;">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 12px;border-bottom:1px solid {SB_BDR};">
+        <div style="width:34px;height:34px;border-radius:10px;flex-shrink:0;
+                    background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+                    display:flex;align-items:center;justify-content:center;font-size:16px;">✨</div>
+        <span style="font-size:14px;font-weight:700;color:{TP};">CogniSync AI</span>
+      </div>
+    """, unsafe_allow_html=True)
 
-        for tid in ss.threads:
-            name = ss.thread_names.get(tid, "New Conversation")
-            active = tid == ss.current_thread
-            icon = "▶ " if active else ""
-            if st.button(
-                f"{icon}💬  {name}", key=f"t_{tid}",
-                use_container_width=True,
-                type="primary" if active else "secondary"
-            ):
-                load_thread(tid)
-                st.rerun()
+    st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
+    if st.button("＋  New Chat", key="btn_new_chat"):
+        create_thread(); st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown("</div>", unsafe_allow_html=True)
+    badge = f"{len(ss.threads)}/{MAX_THREADS}"
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;justify-content:space-between;
+                padding:6px 4px 4px;font-size:10px;font-weight:700;
+                letter-spacing:.08em;text-transform:uppercase;color:{TM};">
+      <span>Chats</span>
+      <span style="padding:2px 6px;border-radius:20px;background:{BADGE_BG};color:{TS};font-size:10px;">{badge}</span>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ── MAIN AREA ─────────────────────────────────────────────────────────────────
+    for tid in ss.threads:
+        name   = ss.thread_names.get(tid, "New Conversation")
+        active = tid == ss.current_thread
+        if active: st.markdown('<div class="active-thread">', unsafe_allow_html=True)
+        if st.button(f"{'▶ ' if active else '💬 '}{name[:32]}", key=f"thread_{tid}"):
+            switch_thread(tid); st.rerun()
+        if active: st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div style="padding:14px 10px 10px;border-top:1px solid {SB_BDR};margin-top:20px;">
+      <div style="font-size:11px;color:{TS};word-break:break-all;">👤 {esc(ss.user_email or '')}</div>
+      <div style="font-size:10px;color:{TM};margin-top:2px;">🏢 {esc(ss.user_org or '')}</div>
+    </div></div>
+    """, unsafe_allow_html=True)
+
+
 with main_col:
+    st.markdown(f"""
+    <div style="background:{PAGE_BG};min-height:100vh;display:flex;flex-direction:column;">
+      <div style="background:{HDR_BG};border-bottom:1px solid {SB_BDR};
+                  padding:12px 18px;display:flex;align-items:center;gap:10px;">
+        <div style="width:32px;height:32px;border-radius:9px;
+                    background:linear-gradient(135deg,#ede9fe,#fce7f3);
+                    display:flex;align-items:center;justify-content:center;font-size:16px;">🤖</div>
+        <span style="font-size:15px;font-weight:700;color:{TP};">CogniSync AI Assistant</span>
+        <span style="margin-left:auto;font-size:11px;color:{TS};">
+          {esc(ss.thread_names.get(ss.current_thread,'')[:40])}</span>
+      </div>
+    """, unsafe_allow_html=True)
 
-    # Top bar
-    top1, top2 = st.columns([0.07, 1])
-    with top1:
-        if not ss.sidebar_open:
-            if st.button("›", key="sb_open", help="Open sidebar"):
-                ss.sidebar_open = True
-                st.rerun()
-    with top2:
-        st.markdown(
-            '<div class="topbar">'
-            '<div class="topbar-ic">&#129302;</div>'
-            '<span class="topbar-ttl">Multi Utility Chatbot</span>'
-            '</div>',
-            unsafe_allow_html=True
-        )
+    msgs = cur_msgs()
+    if not msgs:
+        st.markdown(f"""
+        <div style="display:flex;flex-direction:column;align-items:center;
+                    justify-content:center;padding:80px 20px;text-align:center;">
+          <div style="font-size:56px;margin-bottom:18px;">✨</div>
+          <h3 style="font-size:20px;font-weight:700;margin:0 0 8px;color:{TP};">Start a conversation</h3>
+          <p style="font-size:13px;color:{TS};margin:0;">Search · Email · Calendar · Documents</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        for m in msgs:
+            role    = m.get("role", "assistant")
+            content = linkify(m.get("content", ""))
+            is_user = role == "user"
+            bub_bg  = USR_BG if is_user else BOT_BG
+            bub_col = "#fff" if is_user else BOT_COL
+            bub_br  = "18px 18px 4px 18px" if is_user else "18px 18px 18px 4px"
+            row_dir = "row-reverse" if is_user else "row"
+            av_bg   = "#059669" if is_user else "#3b82f6"
+            av      = "👤" if is_user else "🤖"
+            st.markdown(f"""
+            <div style="display:flex;flex-direction:{row_dir};gap:8px;
+                        align-items:flex-end;margin-bottom:14px;padding:0 4px;">
+              <div style="width:30px;height:30px;border-radius:8px;flex-shrink:0;
+                          background:{av_bg};display:flex;align-items:center;
+                          justify-content:center;font-size:14px;">{av}</div>
+              <div style="max-width:72%;border-radius:{bub_br};padding:10px 14px;
+                          font-size:13px;line-height:1.7;word-break:break-word;white-space:pre-wrap;
+                          background:{bub_bg};color:{bub_col};
+                          box-shadow:0 1px 6px rgba(0,0,0,.2);">{content}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    # Messages area
-    msg_ph = st.empty()
-    msg_ph.markdown(build_msgs(), unsafe_allow_html=True)
+    if ss.is_processing:
+        st.markdown(f"""
+        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:14px;">
+          <div style="width:30px;height:30px;border-radius:8px;background:{ACCENT};
+                      display:flex;align-items:center;justify-content:center;font-size:14px;">🤖</div>
+          <div style="border-radius:18px 18px 18px 4px;padding:10px 16px;
+                      background:{BOT_BG};color:{TS};font-size:13px;">Thinking…</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # ── Interrupt UI ──────────────────────────────────────────────────────────
-    if ss.interrupt_data:
+    if ss.interrupt_data and ss.interrupt_type:
         itype = ss.interrupt_type
         idata = ss.interrupt_data
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         if itype == "GMAIL_AUTH_REQUIRED":
-            ep = idata.get("auth_start_endpoint", "")
-            auth_url = f"{API_BASE}{ep}?thread_id={ss.current_thread}"
-            msg = idata.get("message", "Click below to authorize Gmail access.")
-            st.markdown(
-                f'<div class="cb-int yellow">'
-                f'<div class="cb-int-ttl">&#9888;&#65039; Gmail Authorization Required</div>'
-                f'<p class="cb-int-body">{msg}</p>'
-                f'<a href="{auth_url}" target="_blank" class="cb-auth-link">&#128272; Authorize Gmail</a>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-            with st.expander("Already authorized? Paste token here"):
-                tok = st.text_input("Access token", key="g_tok")
-                exp = st.text_input("Expiry (ISO format)", key="g_exp")
-                if st.button("Submit token", key="g_sub"):
-                    ss.interrupt_data = None
-                    ss.interrupt_type = None
-                    ss.is_processing = True
-                    ss.pending_resume = {"state_update": {
-                        "gmail_access_token": tok,
-                        "gmail_token_expiry": exp,
-                    }}
-                    st.rerun()
+            msg = idata.get("message", "Gmail authorization required.")
+            auth_url = ""
+            try:
+                ep = idata.get("auth_start_endpoint", "/chat/gmail/auth/start")
+                r  = requests.get(f"{API_BASE}{ep}", params={"thread_id": ss.current_thread}, timeout=8)
+                auth_url = r.json().get("auth_url", "")
+            except Exception: pass
+            st.markdown(f"""
+            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{Y_BG};border:1px solid {Y_BDR};">
+              <div style="font-weight:700;color:{TP};margin-bottom:6px;">⚠️ Gmail Authorization Required</div>
+              <div style="font-size:13px;color:{TS};margin-bottom:12px;">{esc(msg)}</div>
+              {"" if not auth_url else f'<a href="{esc(auth_url)}" target="_blank" style="display:inline-block;padding:9px 18px;border-radius:10px;background:{ACCENT};color:#fff;font-weight:700;font-size:13px;text-decoration:none;">🔑 Authorize Gmail</a><div style="font-size:11px;color:{TS};margin-top:8px;">After authorizing, this page will refresh automatically.</div>'}
+            </div>
+            """, unsafe_allow_html=True)
 
         elif itype == "USER_CHOICE":
-            msg = idata.get("message", "Select a recipient:")
-            st.markdown(
-                f'<div class="cb-int blue">'
-                f'<div class="cb-int-ttl">&#128101; {msg}</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-            for opt in idata.get("options", []):
-                lbl = f"**{opt.get('username', '')}**"
-                if opt.get("name"):
-                    lbl += f"  ·  _{opt['name']}_"
-                key = f"ch_{opt.get('index', opt.get('username', ''))}"
-                if st.button(lbl, key=key):
-                    val = opt.get("username", str(opt.get("index", "")))
-                    add_msg("user", f"Selected: {opt.get('username', '')}")
-                    ss.interrupt_data = None
-                    ss.interrupt_type = None
-                    ss.is_processing = True
-                    ss.pending_resume = {"user_input": val}
-                    st.rerun()
+            msg  = idata.get("message", "Select a recipient:")
+            opts = idata.get("options", [])
+            st.markdown(f"""
+            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{BL_BG};border:1px solid {BL_BDR};">
+              <div style="font-weight:700;color:{TP};margin-bottom:10px;">👥 {esc(msg)}</div>
+            """, unsafe_allow_html=True)
+            for opt in opts:
+                uname = opt.get("username", "")
+                oname = opt.get("name", "")
+                label = uname + (f" · {oname}" if oname else "")
+                st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
+                if st.button(label, key=f"choice_{uname}_{ss.current_thread}"):
+                    do_resume({"user_input": uname}, f"Selected: {uname}"); st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         elif itype in ("EMAIL_BODY_CONFIRM", "EMAIL_BODY_EDIT"):
-            eb = idata.get("email_body", "")
-            st.markdown(
-                f'<div class="cb-int blue">'
-                f'<div class="cb-int-ttl">&#128231; Email Preview</div>'
-                f'<pre class="cb-int-pre">{eb}</pre>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-            c1, c2 = st.columns([1, 1])
-            with c1:
-                if st.button("Send Email", key="esend", type="primary"):
-                    add_msg("user", "Confirmed: send email")
-                    ss.interrupt_data = None
-                    ss.interrupt_type = None
-                    ss.is_processing = True
-                    ss.pending_resume = {"user_input": "yes"}
-                    st.rerun()
-            with c2:
-                edit_clicked = st.button("Edit", key="eedit")
-
-            if edit_clicked or itype == "EMAIL_BODY_EDIT":
-                new_body = st.text_area(
-                    "Edit email body or describe changes:",
-                    value=eb, height=160, key="ebody_edit"
-                )
-                if st.button("Apply & Continue", key="eapply"):
-                    add_msg("user", "[Edited email body]")
-                    ss.interrupt_data = None
-                    ss.interrupt_type = None
-                    ss.is_processing = True
-                    ss.pending_resume = {"user_input": new_body}
-                    st.rerun()
+            email_body = idata.get("email_body", "")
+            subject    = idata.get("subject", "")
+            recipient  = idata.get("recipient", "")
+            st.markdown(f"""
+            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{BL_BG};border:1px solid {BL_BDR};">
+              <div style="font-weight:700;color:{TP};margin-bottom:10px;">📧 Email Preview</div>
+              {"" if not recipient else f'<div style="font-size:12px;color:{TS};margin-bottom:4px;">To: {esc(recipient)}</div>'}
+              {"" if not subject else f'<div style="font-size:12px;color:{TS};margin-bottom:8px;">Subject: {esc(subject)}</div>'}
+              <pre style="background:{IN_BG};border:1px solid {IN_BDR};border-radius:8px;padding:12px;
+                          font-size:12px;white-space:pre-wrap;word-break:break-word;color:{TP};
+                          margin:0 0 12px;max-height:220px;overflow-y:auto;font-family:'Inter',sans-serif;">
+{esc(email_body)}</pre>
+            """, unsafe_allow_html=True)
+            col_send, col_edit, _ = st.columns([1, 1, 3])
+            with col_send:
+                st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
+                if st.button("Send ✓", key=f"send_email_{ss.current_thread}"):
+                    do_resume({"user_input": "yes"}, "Confirmed: send email")
+                    ss.edit_box_open = False; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            with col_edit:
+                st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
+                if st.button("Edit ✏️", key=f"edit_email_{ss.current_thread}"):
+                    ss.edit_box_open = True; ss.edit_body_text = email_body; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            if ss.edit_box_open:
+                new_body = st.text_area("edit_body_area", value=ss.edit_body_text, height=140,
+                    key=f"edit_body_area_{ss.current_thread}", label_visibility="collapsed")
+                st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
+                if st.button("Apply & Continue", key=f"apply_edit_{ss.current_thread}"):
+                    body_val = new_body.strip()
+                    if body_val:
+                        do_resume({"user_input": body_val}, body_val)
+                        ss.edit_box_open = False; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         elif itype == "MANUAL_EMAIL_INPUT":
             msg = idata.get("message", "Enter recipient email address:")
-            st.markdown(
-                f'<div class="cb-int yellow">'
-                f'<div class="cb-int-ttl">&#128236; {msg}</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-            manual = st.text_input("Email address", key="manual_email")
-            if st.button("Continue", key="msub") and (manual or "").strip():
-                add_msg("user", manual.strip())
-                ss.interrupt_data = None
-                ss.interrupt_type = None
-                ss.is_processing = True
-                ss.pending_resume = {"user_input": manual.strip()}
-                st.rerun()
+            st.markdown(f"""
+            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{Y_BG};border:1px solid {Y_BDR};">
+              <div style="font-weight:700;color:{TP};margin-bottom:10px;">📨 {esc(msg)}</div>
+            """, unsafe_allow_html=True)
+            email_val = st.text_input("manual_email_input", placeholder="email@example.com",
+                key=f"manual_email_{ss.current_thread}", label_visibility="collapsed")
+            st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
+            if st.button("Submit", key=f"submit_manual_email_{ss.current_thread}"):
+                val = (email_val or "").strip()
+                if val: do_resume({"user_input": val}, val); st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         else:
-            # Generic fallback — user types response in input bar
-            msg = idata.get("message", "Please respond below:")
-            st.markdown(
-                f'<div class="cb-int blue">'
-                f'<div class="cb-int-ttl">&#128172; {msg}</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+            msg = idata.get("message", "Please type your response:")
+            st.markdown(f"""
+            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{BL_BG};border:1px solid {BL_BDR};">
+              <div style="font-weight:700;color:{TP};margin-bottom:10px;">💬 {esc(msg)}</div>
+            """, unsafe_allow_html=True)
+            resp_val = st.text_input("interrupt_text_input", placeholder="Type your response…",
+                key=f"interrupt_text_{ss.current_thread}", label_visibility="collapsed")
+            st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
+            if st.button("Send Response", key=f"send_interrupt_{ss.current_thread}"):
+                val = (resp_val or "").strip()
+                if val: do_resume({"user_input": val}, val); st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Thinking indicator ────────────────────────────────────────────────────
-    status_ph = st.empty()
-    if ss.is_processing and not ss.interrupt_type:
-        status_ph.markdown(
-            '<div class="cb-think">'
-            '<div class="cb-av bot">&#129302;</div>'
-            '<div class="cb-tbub">'
-            '<div class="cb-dots">'
-            '<div class="cb-dot"></div>'
-            '<div class="cb-dot"></div>'
-            '<div class="cb-dot"></div>'
-            '</div>'
-            '<span>Thinking&hellip;</span>'
-            '</div></div>',
-            unsafe_allow_html=True
-        )
+    st.markdown(f"""
+    <div style="background:{HDR_BG};border-top:1px solid {SB_BDR};padding:12px 4px 16px;margin-top:16px;">
+    """, unsafe_allow_html=True)
 
-    # ── Execute pending resume (fires after interrupt response reruns) ─────────
-    if ss.pending_resume and not ss.interrupt_type:
-        payload = ss.pending_resume
-        ss.pending_resume = None
-        ok = api_resume(payload)
-        if ok:
-            stream_chat(msg_ph, status_ph)
-        msg_ph.markdown(build_msgs(), unsafe_allow_html=True)
-        st.rerun()
-
-    # ── Input bar ─────────────────────────────────────────────────────────────
-    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-    ph_text = "Type your response..." if ss.interrupt_type else "Type your message..."
-
-    in_col, send_col = st.columns([7, 1])
-    with in_col:
-        user_input = st.text_input(
-            "msg", label_visibility="collapsed",
-            placeholder=ph_text, key="chat_input",
-            disabled=ss.is_processing,
-        )
+    input_disabled = bool(ss.interrupt_type)
+    input_col, send_col = st.columns([6, 1], gap="small")
+    with input_col:
+        user_input = st.text_input("message_input",
+            placeholder="Type your response…" if ss.interrupt_type else "Type your message…",
+            key="chat_input", disabled=input_disabled, label_visibility="collapsed")
     with send_col:
-        send_hit = st.button(
-            "Send ➤", key="send_btn",
-            disabled=ss.is_processing or not (user_input or "").strip(),
-            use_container_width=True, type="primary",
-        )
+        st.markdown('<div class="send-btn">', unsafe_allow_html=True)
+        send_clicked = st.button("Send ➤", key="btn_send", disabled=input_disabled)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Handle send ───────────────────────────────────────────────────────────
-    if send_hit and (user_input or "").strip():
-        text = user_input.strip()
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
-        if ss.interrupt_type:
-            # Any text-based interrupt — route through resume
-            add_msg("user", text)
-            ss.interrupt_data = None
-            ss.interrupt_type = None
-            ss.is_processing = True
-            ss.pending_resume = {"user_input": text}
-            st.rerun()
-        else:
-            # Normal message send → POST /chat/message → stream
-            add_msg("user", text)
-            if len(cur_msgs()) == 1:
-                ss.thread_names[ss.current_thread] = make_name(text)
-            ss.is_processing = True
-            msg_ph.markdown(build_msgs(), unsafe_allow_html=True)
-
-            if api_send(text):
-                stream_chat(msg_ph, status_ph)
-
-            msg_ph.markdown(build_msgs(), unsafe_allow_html=True)
-            st.rerun()
+    if send_clicked and user_input and user_input.strip() and not input_disabled:
+        do_send(user_input.strip()); st.rerun()

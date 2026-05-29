@@ -5,6 +5,7 @@ const STREAMLIT_BASE = "http://localhost:8501";
 
 const Chatbot = () => {
   const containerRef = useRef(null);
+  const iframeRef = useRef(null);
   const [iframeHeight, setIframeHeight] = useState("100%");
   const [streamlitUrl, setStreamlitUrl] = useState(null);
   const [authError, setAuthError] = useState(false);
@@ -48,6 +49,20 @@ const Chatbot = () => {
     calcHeight();
     window.addEventListener("resize", calcHeight);
     return () => window.removeEventListener("resize", calcHeight);
+  }, []);
+
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e.data && e.data.type === 'GMAIL_AUTH_SUCCESS') {
+        setTimeout(() => {
+          if (iframeRef.current) {
+            iframeRef.current.src = iframeRef.current.src;
+          }
+        }, 500);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
   }, []);
 
   if (authError) {
@@ -97,6 +112,7 @@ const Chatbot = () => {
       style={{ width: "100%", height: iframeHeight, overflow: "hidden", margin: 0, padding: 0 }}
     >
       <iframe
+        ref={iframeRef}
         src={streamlitUrl}
         title="Multi Utility Chatbot"
         style={{ width: "100%", height: "100%", border: "none", display: "block" }}
