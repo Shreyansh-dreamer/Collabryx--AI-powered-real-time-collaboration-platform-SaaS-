@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Send, Search, MoreVertical, Smile, Paperclip, Trash2 } from "lucide-react";
+import { useTheme } from '../ThemeContext.jsx';
 
-export default function Message({group,messages,isDark,isMobile,onBack,message,setMessage,handleSend,userId,onDeleteGroup,}) {
+export default function Message({group,messages,isMobile,onBack,message,setMessage,handleSend,userId,onDeleteGroup,}) {
+  const { isDark } = useTheme();
 
   const bottomRef = useRef(null);
   const [showMenu, setShowMenu] = useState(false);

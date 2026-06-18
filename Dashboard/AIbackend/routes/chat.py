@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -33,9 +34,11 @@ from pydantic import BaseModel, Field
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request as GoogleRequest
 
 import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
+from tavily import TavilyClient
 
 load_dotenv()
 
@@ -43,10 +46,11 @@ conn         = sqlite3.connect(database="chatbot.db", check_same_thread=False)
 checkpointer = SqliteSaver(conn=conn)
 
 MONGO_URI            = os.getenv("MONGO_URL")
-GROQ_API_KEY         = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY         = os.getenv("GROQ-API-KEY")
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI")
+TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY")
 
 mongo      = MongoClient(MONGO_URI)
 db_mongo   = mongo["collabryxdb"]
@@ -59,7 +63,7 @@ _pending_resumes:  dict = {}
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_origins=["http://localhost:8501","http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -134,10 +138,7 @@ def get_stock_price(symbol: str) -> dict:
     return {"symbol": symbol, "price": "mock"}
 
 @tool
-def gmail_send_intent(
-    to_hint: str, subject_hint: str, body_hint: str,
-    cc: Optional[str] = None, bcc: Optional[str] = None,
-):
+def gmail_send_intent(to_hint: str, subject_hint: str, body_hint: str,cc: Optional[str] = None, bcc: Optional[str] = None,):
     """Intent to send an email via Gmail."""
     return {"to_hint": to_hint, "subject_hint": subject_hint,
             "body_hint": body_hint, "cc": cc, "bcc": bcc}
@@ -152,17 +153,23 @@ def calendar_create_intent(message: str) -> str:
     """Use this tool to create or schedule calendar events."""
     return "CALENDAR_CREATE"
 
-tools          = [search_tool, calculator, github_profile, get_stock_price,
-                  gmail_send_intent, doc_infoRetrieval_rag_intent, calendar_create_intent]
+@tool
+def web_search(message:str)->str:
+    """Use this tool to get information from the web."""
+    tavily = TavilyClient(api_key=TAVILY_API_KEY)
+    results = tavily.search(query=message)
+    return results['results']
+
+tools = [search_tool, calculator, github_profile, get_stock_price,gmail_send_intent, doc_infoRetrieval_rag_intent, calendar_create_intent, web_search]
 llm_with_tools = llm.bind_tools(tools)
-tool_node      = ToolNode(tools)
+tool_node = ToolNode(tools)
 
 def chat_node(state: ChatState):
     system_prompt = SystemMessage(content=(
         "You are a helpful assistant. Use tools only when necessary. "
         "If a user wants to send an email, use gmail_send_intent. "
         "If they want to schedule a meeting, use calendar_create_intent. "
-        "If they ask about documents, use doc_infoRetrieval_rag_intent."
+        "If what the user asks is very much related to the documents ,and is also the correct output for the question, use doc_infoRetrieval_rag_intent."
     ))
     response = llm_with_tools.invoke([system_prompt] + state["messages"])
     return {"messages": [response]}
@@ -203,13 +210,31 @@ def extract_calendar_intent(state: ChatState):
         )]}
 
 def get_google_credentials(state: ChatState):
-    return Credentials(
+    user_email = state.get("user_email")
+    refresh_token = None
+    if user_email:
+        try:
+            user_doc = UsersModel.find_one({"email": user_email})
+            if user_doc:
+                refresh_token = user_doc.get("refreshToken") or user_doc.get("googleRefreshToken")
+        except Exception as e:
+            print(f"Error querying user's refresh token from MongoDB: {e}")
+
+    creds = Credentials(
         token=state.get("gmail_access_token"),
-        refresh_token=None,
+        refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
     )
+    
+    if refresh_token and not creds.valid:
+        try:
+            creds.refresh(GoogleRequest())
+        except Exception as e:
+            print(f"Error refreshing google credentials: {e}")
+            
+    return creds
 
 def create_calendar_event_node(state: ChatState):
     intent   = state["calendar_intent"]
@@ -251,10 +276,13 @@ def rag_flow(state: ChatState):
                 query = msg.content
                 break
         retriever = vectorstore.as_retriever(
-            search_kwargs={"k": 5, "filter": {"metadata.org": state["org"]}}
+            search_kwargs={"k": 5, "filter": {"org": state["org"]}}
         )
         docs = retriever.get_relevant_documents(query)
         return {"rag_docs": docs}
+        # docs = vectorstore.similarity_search(query, k=20)
+        # filtered_docs = [d for d in docs if d.metadata.get("org") == state["org"]]
+        # return {"rag_docs": filtered_docs}
     except Exception as e:
         return {"email_error": str(e), "rag_docs": []}
 
@@ -268,12 +296,45 @@ def rag_reframe_node(state: ChatState):
             question = msg.content
             break
     try:
-        answer = llm.invoke(
-            f"Answer using ONLY this context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
-        ).content
+        prompt = (
+            f"You are a helpful assistant. Use the following document context to answer the user's question.\n"
+            f"Please generate a complete, helpful, and natural answer related to the actual question asked, based on the documents.\n"
+            f"If the context does not contain the answer, answer generally and use your own knowledge base to answer the question.\n\n"
+            f"Context:\n{context}\n\n"
+            f"Question: {question}\n\n"
+            f"Answer:"
+        )
+        answer = llm.invoke(prompt).content
         return {"messages": [AIMessage(content=answer)]}
     except Exception as e:
         return {"messages": [AIMessage(content=f"Error: {e}")]}
+
+def check_rag_node(state: ChatState):
+    query = ""
+    for msg in reversed(state["messages"]):
+        if getattr(msg, "type", None) == "human":
+            query = msg.content
+            break
+    if not query:
+        return {"rag_docs": []}
+    try:
+        # Search top 20 to ensure we capture enough docs for the org in Python
+        results = vectorstore.similarity_search_with_score(query, k=20)
+        filtered = [
+            (doc, score) for doc, score in results
+            if doc.metadata.get("org") == state["org"]
+        ]
+        # Similarity threshold: 0.60 is suitable for all-MiniLM-L6-v2 cosine similarity
+        if filtered and filtered[0][1] >= 0.60:
+            return {"rag_docs": [doc for doc, score in filtered[:5]]}
+    except Exception as e:
+        print(f"RAG check error: {e}")
+    return {"rag_docs": []}
+
+def route_after_check_rag(state: ChatState) -> str:
+    if state.get("rag_docs"):
+        return "rag_reframe"
+    return "chat"
 
 def extract_email_info(state: ChatState):
     try:
@@ -395,6 +456,20 @@ def build_gmail_oauth_flow():
     )
 
 def ensure_gmail_auth(state: ChatState):
+    user_email = state.get("user_email")
+    if user_email:
+        try:
+            user_doc = UsersModel.find_one({"email": user_email})
+            if user_doc and (user_doc.get("refreshToken") or user_doc.get("googleRefreshToken")):
+                creds = get_google_credentials(state)
+                if creds and creds.valid:
+                    return {
+                        "gmail_access_token": creds.token,
+                        "gmail_token_expiry": creds.expiry.isoformat() if creds.expiry else None
+                    }
+        except Exception as e:
+            print(f"Error checking/refreshing Gmail auth from DB: {e}")
+
     token  = state.get("gmail_access_token")
     expiry = state.get("gmail_token_expiry")
     if token and expiry:
@@ -411,6 +486,20 @@ def ensure_gmail_auth(state: ChatState):
     return state
 
 def ensure_calendar_auth(state: ChatState):
+    user_email = state.get("user_email")
+    if user_email:
+        try:
+            user_doc = UsersModel.find_one({"email": user_email})
+            if user_doc and (user_doc.get("refreshToken") or user_doc.get("googleRefreshToken")):
+                creds = get_google_credentials(state)
+                if creds and creds.valid:
+                    return {
+                        "gmail_access_token": creds.token,
+                        "gmail_token_expiry": creds.expiry.isoformat() if creds.expiry else None
+                    }
+        except Exception as e:
+            print(f"Error checking/refreshing Calendar auth from DB: {e}")
+
     token  = state.get("gmail_access_token")
     expiry = state.get("gmail_token_expiry")
     if token and expiry:
@@ -436,7 +525,6 @@ def gmail_auth_start(thread_id: str):
 
 @router.get("/gmail/auth/callback")
 def gmail_auth_callback(code: str, state: str):
-    from fastapi.responses import HTMLResponse
     try:
         flow = build_gmail_oauth_flow()
         flow.fetch_token(code=code)
@@ -446,6 +534,19 @@ def gmail_auth_callback(code: str, state: str):
         thread_id = state
 
         config = {"configurable": {"thread_id": thread_id}}
+        
+        # Save the refresh token to database if available
+        thread_state = app_graph.get_state(config)
+        user_email = thread_state.values.get("user_email") if (thread_state and thread_state.values) else None
+        if user_email and creds.refresh_token:
+            try:
+                UsersModel.update_one(
+                    {"email": user_email},
+                    {"$set": {"refreshToken": creds.refresh_token}}
+                )
+            except Exception as mongo_err:
+                print(f"Error saving refresh token to MongoDB for user {user_email}: {mongo_err}")
+
         app_graph.update_state(config, {
             "gmail_access_token": token,
             "gmail_token_expiry": expiry,
@@ -471,7 +572,6 @@ def gmail_auth_callback(code: str, state: str):
 </body>
 </html>""")
     except Exception as e:
-        from fastapi.responses import HTMLResponse
         return HTMLResponse(status_code=400, content="""<!DOCTYPE html>
 <html>
 <body style="font-family:sans-serif;display:flex;align-items:center;
@@ -496,7 +596,7 @@ def send_email_node(state: ChatState):
         if state.get("bcc"): msg += f"Bcc: {state['bcc']}\n"
         msg += f"Subject: {state['subject_hint']}\n\n{state['email_body']}"
         raw     = base64.urlsafe_b64encode(msg.encode()).decode()
-        creds   = Credentials(token=state["gmail_access_token"])
+        creds   = get_google_credentials(state)
         service = build("gmail", "v1", credentials=creds)
         service.users().messages().send(userId="me", body={"raw": raw}).execute()
         return {
@@ -512,40 +612,45 @@ def send_email_node(state: ChatState):
 
 graph = StateGraph(ChatState)
 
-graph.add_node("chat",                    chat_node)
-graph.add_node("tools",                   tool_node)
-graph.add_node("docRag",                  rag_flow)
-graph.add_node("rag_reframe",             rag_reframe_node)
-graph.add_node("extract_email",           extract_email_info)
-graph.add_node("find_recipients",         find_recipients)
-graph.add_node("select_recipient",        select_recipient)
-graph.add_node("generate_body",           generate_body_node)
-graph.add_node("confirm_body",            confirm_body_node)
-graph.add_node("ensure_auth",             ensure_gmail_auth)
-graph.add_node("ensure_calendar_auth",    ensure_calendar_auth)
-graph.add_node("send_email",              send_email_node)
-graph.add_node("extract_calendar_intent", extract_calendar_intent)
-graph.add_node("create_calendar_event",   create_calendar_event_node)
+graph.add_node("check_rag",check_rag_node)
+graph.add_node("chat",chat_node)
+graph.add_node("tools",tool_node)
+graph.add_node("docRag",rag_flow)
+graph.add_node("rag_reframe",rag_reframe_node)
+graph.add_node("extract_email",extract_email_info)
+graph.add_node("find_recipients",find_recipients)
+graph.add_node("select_recipient",select_recipient)
+graph.add_node("generate_body",generate_body_node)
+graph.add_node("confirm_body",confirm_body_node)
+graph.add_node("ensure_auth",ensure_gmail_auth)
+graph.add_node("ensure_calendar_auth",ensure_calendar_auth)
+graph.add_node("send_email",send_email_node)
+graph.add_node("extract_calendar_intent",extract_calendar_intent)
+graph.add_node("create_calendar_event",create_calendar_event_node)
 
-graph.add_edge(START, "chat")
-graph.add_conditional_edges("chat", tools_condition, {"tools": "tools", END: END})
+graph.add_edge(START,"check_rag")
 graph.add_conditional_edges(
-    "tools", route_after_tool,
-    {"extract_email": "extract_email", "docRag": "docRag",
-     "extract_calendar_intent": "extract_calendar_intent", "chat": "chat"}
+    "check_rag",route_after_check_rag,
+    {"rag_reframe":"rag_reframe","chat":"chat"}
 )
-graph.add_edge("docRag",                   "rag_reframe")
-graph.add_edge("rag_reframe",              END)
-graph.add_edge("extract_email",            "find_recipients")
-graph.add_edge("find_recipients",          "select_recipient")
-graph.add_edge("select_recipient",         "generate_body")
-graph.add_edge("generate_body",            "confirm_body")
-graph.add_edge("confirm_body",             "ensure_auth")
-graph.add_edge("ensure_auth",              "send_email")
-graph.add_edge("send_email",               END)
-graph.add_edge("extract_calendar_intent",  "ensure_calendar_auth")
-graph.add_edge("ensure_calendar_auth",     "create_calendar_event")
-graph.add_edge("create_calendar_event",    END)
+graph.add_conditional_edges("chat",tools_condition,{"tools":"tools",END:END})
+graph.add_conditional_edges(
+    "tools",route_after_tool,
+    {"extract_email":"extract_email", "docRag":"docRag",
+     "extract_calendar_intent":"extract_calendar_intent","chat":"chat"}
+)
+graph.add_edge("docRag","rag_reframe")
+graph.add_edge("rag_reframe",END)
+graph.add_edge("extract_email","find_recipients")
+graph.add_edge("find_recipients","select_recipient")
+graph.add_edge("select_recipient","generate_body")
+graph.add_edge("generate_body","confirm_body")
+graph.add_edge("confirm_body","ensure_auth")
+graph.add_edge("ensure_auth","send_email")
+graph.add_edge("send_email",END)
+graph.add_edge("extract_calendar_intent","ensure_calendar_auth")
+graph.add_edge("ensure_calendar_auth","create_calendar_event")
+graph.add_edge("create_calendar_event",END)
 
 app_graph = graph.compile(checkpointer=checkpointer)
 

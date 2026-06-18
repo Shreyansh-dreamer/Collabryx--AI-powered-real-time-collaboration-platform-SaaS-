@@ -1,7 +1,9 @@
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
+import { useTheme } from '../ThemeContext.jsx';
 
-export default function CreateRoom({isDark,showCreateGroup,setShowCreateGroup,newGroupName,setNewGroupName,newGroupPhoto,setNewGroupPhoto,handleCreateGroup,}) {
+export default function CreateRoom({showCreateGroup,setShowCreateGroup,newGroupName,setNewGroupName,newGroupPhoto,setNewGroupPhoto,handleCreateGroup,}) {
+  const { isDark } = useTheme();
   const [imageError, setImageError] = useState(false);
 
   const handleImageError = () => {

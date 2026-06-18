@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+streamlit
 
 python-multipart
 
@@ -11,6 +12,8 @@ langchain
 langchain-community
 langchain-mongodb
 langchain-core
+langchain-groq
+langchain_huggingface
 
 langgraph
 duckduckgo-search

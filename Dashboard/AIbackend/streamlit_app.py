@@ -18,7 +18,7 @@ _DEFAULTS = dict(
     threads=[], current_thread=None, messages={}, thread_names={},
     interrupt_data=None, interrupt_type=None, is_processing=False,
     user_email=None, user_org=None, auth_checked=False, threads_loaded=False,
-    edit_box_open=False, edit_body_text="",
+    edit_box_open=False, edit_body_text="", sidebar_open=True,
 )
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -26,15 +26,32 @@ for _k, _v in _DEFAULTS.items():
 
 ss = st.session_state
 
-PAGE_BG = "#080d18"; SB_BG  = "#0d1424"; SB_BDR = "#1a2540"
-HDR_BG  = "#0d1424"; IN_BG  = "#111c33"; IN_BDR = "#1e3058"
-BOT_BG  = "#111c33"; BOT_COL= "#e2eaf8"; USR_BG = "#1a4fd6"
-TP      = "#e8edf8"; TS     = "#8896b0"; TM     = "#4a5a78"
-BTN_BG  = "#111c33"; BTN_HV = "#1a2a4a"; BTN_ACT= "#1a4fd6"
-BADGE_BG= "#1a2540"; SCR    = "#1e3058"
-Y_BG    = "#1f1500"; Y_BDR  = "#5c3000"
-BL_BG   = "#060d22"; BL_BDR = "#0d2255"
-ACCENT  = "#3b82f6"; ACCENT2= "#6366f1"
+
+_qp = st.query_params
+_theme = _qp.get("theme", "dark")
+IS_DARK = (_theme != "light")
+
+if IS_DARK:
+    PAGE_BG = "#080d18"; SB_BG  = "#0e1e45"; SB_BDR = "#2a4080"
+    HDR_BG  = "#0d1424"; IN_BG  = "#111c33"; IN_BDR = "#1e3058"
+    BOT_BG  = "#111c33"; BOT_COL= "#e2eaf8"; USR_BG = "#1a4fd6"
+    TP      = "#e8edf8"; TS     = "#8896b0"; TM     = "#4a5a78"
+    BTN_BG  = "#111c33"; BTN_HV = "#1a2a4a"; BTN_ACT= "#1a4fd6"
+    BADGE_BG= "#1a2540"; SCR    = "#1e3058"
+    Y_BG    = "#1f1500"; Y_BDR  = "#5c3000"
+    BL_BG   = "#060d22"; BL_BDR = "#0d2255"
+    ACCENT  = "#3b82f6"; ACCENT2= "#6366f1"
+else:
+    PAGE_BG = "#f8fafc"; SB_BG  = "#f0f4ff"; SB_BDR = "#c7d7f8"
+    HDR_BG  = "#ffffff"; IN_BG  = "#f1f5fb"; IN_BDR = "#c7d7f8"
+    BOT_BG  = "#f0f4ff"; BOT_COL= "#1e293b"; USR_BG = "#2563eb"
+    TP      = "#1e293b"; TS     = "#64748b"; TM     = "#94a3b8"
+    BTN_BG  = "#e8edf8"; BTN_HV = "#dbeafe"; BTN_ACT= "#2563eb"
+    BADGE_BG= "#e0e7ff"; SCR    = "#cbd5e1"
+    Y_BG    = "#fefce8"; Y_BDR  = "#fde68a"
+    BL_BG   = "#eff6ff"; BL_BDR = "#bfdbfe"
+    ACCENT  = "#2563eb"; ACCENT2= "#4f46e5"
+
 
 st.markdown(f"""
 <style>
@@ -44,16 +61,39 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"],
 section[data-testid="stMain"],section[data-testid="stMain"]>.block-container,
 div[data-testid="stMainBlockContainer"]{{
   background:{PAGE_BG}!important;padding:0!important;margin:0!important;
-  max-width:100vw!important;font-family:'Inter',sans-serif!important;}}
+  max-width:100vw!important;width:100vw!important;
+  height:100vh!important;overflow:hidden!important;
+  font-family:'Inter',sans-serif!important;}}
 header,footer,[data-testid="stHeader"],[data-testid="stToolbar"],
 [data-testid="stDecoration"],[data-testid="stStatusWidget"],
 [data-testid="stBottom"],[data-testid="stSidebar"],
 [data-testid="collapsedControl"]{{display:none!important;}}
 [data-testid="stVerticalBlock"]{{gap:0!important;padding:0!important;}}
 [data-testid="stMarkdownContainer"]{{margin:0!important;padding:0!important;}}
-::-webkit-scrollbar{{width:4px;height:4px;}}
+/* Column row */
+[data-testid="stHorizontalBlock"]{{
+  gap:0!important;display:flex!important;align-items:stretch!important;
+  height:100vh!important;overflow:hidden!important;}}
+/* Each column */
+[data-testid="column"]{{
+  display:flex!important;flex-direction:column!important;
+  overflow:hidden!important;height:100vh!important;flex-shrink:0!important;}}
+[data-testid="column"]>[data-testid="stVerticalBlock"]{{
+  flex:1!important;overflow:hidden!important;
+  display:flex!important;flex-direction:column!important;}}
+/* Scrollbars */
+::-webkit-scrollbar{{width:5px;}}
 ::-webkit-scrollbar-thumb{{background:{SCR};border-radius:4px;}}
 ::-webkit-scrollbar-track{{background:transparent;}}
+/* st.container(height=X) — the scrollable messages area */
+[data-testid="stVerticalBlockBorderWrapper"]{{
+  flex:1!important;height:0!important;min-height:80px!important;
+  overflow-y:auto!important;border:none!important;
+  border-radius:0!important;background:transparent!important;
+  box-shadow:none!important;}}
+[data-testid="stVerticalBlockBorderWrapper"]>[data-testid="stVerticalBlock"]{{
+  padding:14px 18px!important;gap:6px!important;overflow-y:visible!important;}}
+/* Buttons */
 div.stButton>button{{width:100%;padding:8px 12px;border-radius:10px;border:none;
   background:{BTN_BG};color:{TP};font-family:'Inter',sans-serif;font-size:12px;
   font-weight:600;cursor:pointer;text-align:left;transition:background 0.15s;margin-bottom:2px;}}
@@ -83,10 +123,34 @@ div[data-testid="stTextArea"] textarea{{background:{IN_BG}!important;color:{TP}!
   border:1px solid {IN_BDR}!important;border-radius:10px!important;
   font-family:'Inter',sans-serif!important;font-size:12px!important;padding:8px!important;}}
 div[data-testid="stTextArea"] label{{display:none!important;}}
-div[data-testid="stColumns"]{{gap:8px!important;}}
+/* Chat header */
+.chat-header{{
+  background:{HDR_BG}!important;padding:10px 18px!important;
+  border-bottom:1px solid {SB_BDR}!important;
+  display:flex!important;align-items:center!important;gap:10px!important;
+  flex-shrink:0!important;}}
+/* Toggle ☰ */
+.toggle-btn-wrapper>button{{
+  background:transparent!important;color:{TP}!important;
+  font-size:18px!important;padding:2px 6px!important;
+  width:auto!important;margin:0!important;
+  border-radius:6px!important;min-width:30px!important;margin-bottom:0!important;}}
+.toggle-btn-wrapper>button:hover{{background:{BTN_HV}!important;}}
+/* Close ✕ */
+.close-sb-btn>button{{
+  background:transparent!important;color:{TS}!important;
+  font-size:14px!important;padding:2px 6px!important;
+  width:auto!important;margin:0!important;border-radius:6px!important;
+  min-width:28px!important;margin-bottom:0!important;}}
+.close-sb-btn>button:hover{{background:{BTN_HV}!important;color:{TP}!important;}}
+/* Input area wrapper — sits below the scrollable container naturally */
+.chat-input-bar{{
+  flex-shrink:0!important;
+  border-top:1px solid {SB_BDR}!important;
+  background:{PAGE_BG}!important;
+  padding:10px 18px 12px!important;}}
 </style>
 """, unsafe_allow_html=True)
-
 
 def gen_id():
     s = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
@@ -221,7 +285,6 @@ def do_resume(payload, user_display_msg=None):
             ss.interrupt_data = None; ss.interrupt_type = None
     ss.is_processing = False
 
-
 fetch_user()
 
 if not ss.threads_loaded and ss.user_email:
@@ -259,20 +322,6 @@ if not ss.user_email or not ss.user_org:
     """, unsafe_allow_html=True)
     st.stop()
 
-st.markdown("""
-<script>
-(function() {
-  if (window.__gmailListenerInstalled) return;
-  window.__gmailListenerInstalled = true;
-  window.addEventListener('message', function(e) {
-    if (e.data && e.data.type === 'GMAIL_AUTH_SUCCESS') {
-      setTimeout(function() { window.location.reload(); }, 300);
-    }
-  });
-})();
-</script>
-""", unsafe_allow_html=True)
-
 if ss.is_processing:
     ss.is_processing = False
     new_msgs, interrupt_payload = stream_and_collect()
@@ -283,229 +332,218 @@ if ss.is_processing:
         ss.interrupt_data = None; ss.interrupt_type = None
 
 
-sidebar_col, main_col = st.columns([1, 4], gap="small")
+st.markdown(f"""
+<script>
+(function(){{
+  var SB='{SB_BG}',PG='{PAGE_BG}',BD='{SB_BDR}';
+  function fix(){{
+    // Sidebar column
+    var cols=document.querySelectorAll('[data-testid="stHorizontalBlock"]>[data-testid="column"]');
+    if(cols.length>=2){{
+      var s=cols[0];
+      s.style.background=SB;
+      s.style.borderRight='2px solid '+BD;
+      s.style.overflowY='auto';
+      var sv=s.querySelector(':scope>[data-testid="stVerticalBlock"]');
+      if(sv){{sv.style.background=SB;sv.style.overflowY='auto';sv.style.padding='12px 8px';sv.style.height='100%';}}
+      // Main column: flex column so container fills space and input sits at bottom
+      var m=cols[cols.length-1];
+      m.style.background=PG;
+      var mv=m.querySelector(':scope>[data-testid="stVerticalBlock"]');
+      if(mv){{mv.style.display='flex';mv.style.flexDirection='column';mv.style.height='100%';mv.style.overflow='hidden';mv.style.background=PG;}}
+    }} else {{
+      // No columns (sidebar closed): fix root vertical block
+      var root=document.querySelector('div[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"]');
+      if(root){{root.style.display='flex';root.style.flexDirection='column';root.style.height='100vh';root.style.overflow='hidden';root.style.background=PG;}}
+    }}
+    // Messages border wrapper: make it fill remaining flex space and scroll
+    var bw=document.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+    if(bw){{
+      bw.style.flex='1';
+      bw.style.height='0';
+      bw.style.minHeight='80px';
+      bw.style.overflowY='auto';
+      bw.style.border='none';
+      bw.style.borderRadius='0';
+      bw.style.background='transparent';
+      bw.style.boxShadow='none';
+    }}
+  }}
+  var mo=new MutationObserver(fix);
+  mo.observe(document.body,{{childList:true,subtree:true}});
+  fix();
+}})();
+</script>
+""", unsafe_allow_html=True)
 
-with sidebar_col:
-    st.markdown(f"""
-    <div style="background:{SB_BG};border-right:1px solid {SB_BDR};min-height:100vh;padding:0;">
-      <div style="display:flex;align-items:center;gap:10px;padding:14px 12px;border-bottom:1px solid {SB_BDR};">
-        <div style="width:34px;height:34px;border-radius:10px;flex-shrink:0;
-                    background:linear-gradient(135deg,{ACCENT},{ACCENT2});
-                    display:flex;align-items:center;justify-content:center;font-size:16px;">✨</div>
-        <span style="font-size:14px;font-weight:700;color:{TP};">CogniSync AI</span>
-      </div>
-    """, unsafe_allow_html=True)
+if ss.sidebar_open:
+    sidebar_col, main_col = st.columns([1, 4], gap="small")
+else:
+    sidebar_col = None
+    main_col    = st.container()
 
-    st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
-    if st.button("＋  New Chat", key="btn_new_chat"):
-        create_thread(); st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    badge = f"{len(ss.threads)}/{MAX_THREADS}"
-    st.markdown(f"""
-    <div style="display:flex;align-items:center;justify-content:space-between;
-                padding:6px 4px 4px;font-size:10px;font-weight:700;
-                letter-spacing:.08em;text-transform:uppercase;color:{TM};">
-      <span>Chats</span>
-      <span style="padding:2px 6px;border-radius:20px;background:{BADGE_BG};color:{TS};font-size:10px;">{badge}</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    for tid in ss.threads:
-        name   = ss.thread_names.get(tid, "New Conversation")
-        active = tid == ss.current_thread
-        if active: st.markdown('<div class="active-thread">', unsafe_allow_html=True)
-        if st.button(f"{'▶ ' if active else '💬 '}{name[:32]}", key=f"thread_{tid}"):
-            switch_thread(tid); st.rerun()
-        if active: st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div style="padding:14px 10px 10px;border-top:1px solid {SB_BDR};margin-top:20px;">
-      <div style="font-size:11px;color:{TS};word-break:break-all;">👤 {esc(ss.user_email or '')}</div>
-      <div style="font-size:10px;color:{TM};margin-top:2px;">🏢 {esc(ss.user_org or '')}</div>
-    </div></div>
-    """, unsafe_allow_html=True)
-
-
-with main_col:
-    st.markdown(f"""
-    <div style="background:{PAGE_BG};min-height:100vh;display:flex;flex-direction:column;">
-      <div style="background:{HDR_BG};border-bottom:1px solid {SB_BDR};
-                  padding:12px 18px;display:flex;align-items:center;gap:10px;">
-        <div style="width:32px;height:32px;border-radius:9px;
-                    background:linear-gradient(135deg,#ede9fe,#fce7f3);
-                    display:flex;align-items:center;justify-content:center;font-size:16px;">🤖</div>
-        <span style="font-size:15px;font-weight:700;color:{TP};">CogniSync AI Assistant</span>
-        <span style="margin-left:auto;font-size:11px;color:{TS};">
-          {esc(ss.thread_names.get(ss.current_thread,'')[:40])}</span>
-      </div>
-    """, unsafe_allow_html=True)
-
-    msgs = cur_msgs()
-    if not msgs:
-        st.markdown(f"""
-        <div style="display:flex;flex-direction:column;align-items:center;
-                    justify-content:center;padding:80px 20px;text-align:center;">
-          <div style="font-size:56px;margin-bottom:18px;">✨</div>
-          <h3 style="font-size:20px;font-weight:700;margin:0 0 8px;color:{TP};">Start a conversation</h3>
-          <p style="font-size:13px;color:{TS};margin:0;">Search · Email · Calendar · Documents</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        for m in msgs:
-            role    = m.get("role", "assistant")
-            content = linkify(m.get("content", ""))
-            is_user = role == "user"
-            bub_bg  = USR_BG if is_user else BOT_BG
-            bub_col = "#fff" if is_user else BOT_COL
-            bub_br  = "18px 18px 4px 18px" if is_user else "18px 18px 18px 4px"
-            row_dir = "row-reverse" if is_user else "row"
-            av_bg   = "#059669" if is_user else "#3b82f6"
-            av      = "👤" if is_user else "🤖"
+# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+if ss.sidebar_open and sidebar_col is not None:
+    with sidebar_col:
+        sb_hdr_left, sb_hdr_right = st.columns([5, 1], gap="small")
+        with sb_hdr_left:
             st.markdown(f"""
-            <div style="display:flex;flex-direction:{row_dir};gap:8px;
-                        align-items:flex-end;margin-bottom:14px;padding:0 4px;">
-              <div style="width:30px;height:30px;border-radius:8px;flex-shrink:0;
-                          background:{av_bg};display:flex;align-items:center;
-                          justify-content:center;font-size:14px;">{av}</div>
-              <div style="max-width:72%;border-radius:{bub_br};padding:10px 14px;
-                          font-size:13px;line-height:1.7;word-break:break-word;white-space:pre-wrap;
-                          background:{bub_bg};color:{bub_col};
-                          box-shadow:0 1px 6px rgba(0,0,0,.2);">{content}</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 4px;">
+              <div style="width:30px;height:30px;border-radius:8px;
+                   background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+                   display:flex;align-items:center;justify-content:center;flex-shrink:0;">✨</div>
+              <span style="font-size:13px;font-weight:700;color:{TP};">CogniSync</span>
+            </div>
+            """, unsafe_allow_html=True)
+        with sb_hdr_right:
+            st.markdown('<div class="close-sb-btn">', unsafe_allow_html=True)
+            if st.button("✕", key="btn_close_sb"): ss.sidebar_open = False; st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="height:1px;background:{SB_BDR};margin:4px 0 10px;"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
+        if st.button("＋ New Chat", key="btn_new_chat"): create_thread(); st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        for tid in ss.threads:
+            active = tid == ss.current_thread
+            st.markdown(f'<div class="{"active-thread" if active else ""}">', unsafe_allow_html=True)
+            if st.button(f"{'▶' if active else '💬'} {ss.thread_names.get(tid,'...')[:25]}", key=f"thread_{tid}"):
+                switch_thread(tid); st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# ── MAIN CHAT AREA ────────────────────────────────────────────────────────────
+with main_col:
+    # Header bar: toggle ☰ + "Chat" title on same line
+    hdr_toggle_col, hdr_title_col = st.columns([1, 10], gap="small")
+    with hdr_toggle_col:
+        if not ss.sidebar_open:
+            st.markdown('<div class="toggle-btn-wrapper">', unsafe_allow_html=True)
+            if st.button("☰", key="btn_open_sb"): ss.sidebar_open = True; st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+    with hdr_title_col:
+        st.markdown(f'<div class="chat-header"><span style="font-weight:700;color:{TP};font-size:15px;">Chat</span></div>', unsafe_allow_html=True)
+
+    # Messages — use st.container(height=...) which Streamlit actually scrolls
+    msgs = cur_msgs()
+    with st.container(height=600, border=False):
+        if msgs:
+            for m in msgs:
+                content = linkify(m.get("content", ""))
+                role = m['role']
+                if role == 'user':
+                    bst = f"background:{USR_BG};color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;margin:4px 0 4px auto;max-width:75%;width:fit-content;font-size:14px;line-height:1.5;word-break:break-word;"
+                else:
+                    bst = f"background:{BOT_BG};color:{BOT_COL};border-radius:16px 16px 16px 4px;padding:10px 14px;margin:4px auto 4px 0;max-width:82%;width:fit-content;font-size:14px;line-height:1.5;word-break:break-word;"
+                st.markdown(f"<div style='{bst}'>{content}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="display:flex;align-items:center;justify-content:center;min-height:200px;">
+              <div style="text-align:center;">
+                <div style="font-size:40px;margin-bottom:12px;">💬</div>
+                <p style="color:{TS};font-size:14px;">Start a conversation…</p>
+              </div>
             </div>
             """, unsafe_allow_html=True)
 
-    if ss.is_processing:
-        st.markdown(f"""
-        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:14px;">
-          <div style="width:30px;height:30px;border-radius:8px;background:{ACCENT};
-                      display:flex;align-items:center;justify-content:center;font-size:14px;">🤖</div>
-          <div style="border-radius:18px 18px 18px 4px;padding:10px 16px;
-                      background:{BOT_BG};color:{TS};font-size:13px;">Thinking…</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    if ss.interrupt_data and ss.interrupt_type:
+    # Input / interrupt — sits BELOW the scrollable container (natural flex bottom)
+    if ss.interrupt_data:
         itype = ss.interrupt_type
         idata = ss.interrupt_data
-
-        if itype == "GMAIL_AUTH_REQUIRED":
-            msg = idata.get("message", "Gmail authorization required.")
-            auth_url = ""
-            try:
-                ep = idata.get("auth_start_endpoint", "/chat/gmail/auth/start")
-                r  = requests.get(f"{API_BASE}{ep}", params={"thread_id": ss.current_thread}, timeout=8)
-                auth_url = r.json().get("auth_url", "")
-            except Exception: pass
+        st.markdown('<div class="input-area">', unsafe_allow_html=True)
+        if itype == "confirm":
+            st.markdown(f"<div style='color:{TP};font-size:13px;margin-bottom:8px;'>⚡ {esc(idata.get('message','Confirm?'))}</div>", unsafe_allow_html=True)
+            c1, c2 = st.columns([1, 1], gap="small")
+            with c1:
+                st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
+                if st.button("✓ Yes", key="btn_yes"):
+                    do_resume({"user_input": "yes"}, "Yes"); st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
+                if st.button("✗ No", key="btn_no"):
+                    do_resume({"user_input": "no"}, "No"); st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+        elif itype == "edit_email":
+            email_data = idata.get("email_data", {})
+            st.markdown(f"<div style='color:{TP};font-size:13px;margin-bottom:6px;'>✉️ Review email draft:</div>", unsafe_allow_html=True)
+            if not ss.edit_box_open:
+                to_esc   = esc(email_data.get('to',''))
+                subj_esc = esc(email_data.get('subject',''))
+                body_esc = esc(email_data.get('body',''))
+                st.markdown(f"""
+                <div style='background:{BL_BG};border:1px solid {BL_BDR};border-radius:10px;padding:12px;margin-bottom:8px;font-size:12px;color:{TP};'>
+                  <b>To:</b> {to_esc}<br><b>Subject:</b> {subj_esc}<br>
+                  <div style='margin-top:6px;white-space:pre-wrap;'>{body_esc}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                c1, c2, c3 = st.columns([1,1,1], gap="small")
+                with c1:
+                    st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
+                    if st.button("📤 Send", key="btn_send_email"):
+                        do_resume({"state_update": {"email_approved": True, "edited_email": None}}, "Send email"); st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with c2:
+                    st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
+                    if st.button("✏️ Edit", key="btn_edit_email"):
+                        ss.edit_box_open = True; ss.edit_body_text = email_data.get('body',''); st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with c3:
+                    st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
+                    if st.button("✗ Cancel", key="btn_cancel_email"):
+                        do_resume({"state_update": {"email_approved": False, "edited_email": None}}, "Cancel"); st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                new_body = st.text_area("Edit email body:", value=ss.edit_body_text, height=120, key="email_edit_area")
+                c1, c2 = st.columns([1,1], gap="small")
+                with c1:
+                    st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
+                    if st.button("📤 Send edited", key="btn_send_edited"):
+                        edited = {**email_data, "body": new_body}
+                        do_resume({"state_update": {"email_approved": True, "edited_email": edited}}, "Send edited email"); st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with c2:
+                    st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
+                    if st.button("✗ Cancel", key="btn_cancel_edit"):
+                        do_resume({"state_update": {"email_approved": False, "edited_email": None}}, "Cancel"); st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+        elif itype in ("calendar_confirm", "calendar"):
+            evt = idata.get("event_data", {})
+            st.markdown(f"<div style='color:{TP};font-size:13px;margin-bottom:6px;'>📅 Confirm calendar event:</div>", unsafe_allow_html=True)
+            title_esc = esc(evt.get('title',''))
+            date_esc  = esc(evt.get('date',''))
+            start_esc = esc(evt.get('start_time',''))
+            end_esc   = esc(evt.get('end_time',''))
+            dur_esc   = esc(evt.get('duration_minutes',''))
+            desc_esc  = esc(evt.get('description',''))
             st.markdown(f"""
-            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{Y_BG};border:1px solid {Y_BDR};">
-              <div style="font-weight:700;color:{TP};margin-bottom:6px;">⚠️ Gmail Authorization Required</div>
-              <div style="font-size:13px;color:{TS};margin-bottom:12px;">{esc(msg)}</div>
-              {"" if not auth_url else f'<a href="{esc(auth_url)}" target="_blank" style="display:inline-block;padding:9px 18px;border-radius:10px;background:{ACCENT};color:#fff;font-weight:700;font-size:13px;text-decoration:none;">🔑 Authorize Gmail</a><div style="font-size:11px;color:{TS};margin-top:8px;">After authorizing, this page will refresh automatically.</div>'}
+            <div style='background:{Y_BG};border:1px solid {Y_BDR};border-radius:10px;padding:12px;margin-bottom:8px;font-size:12px;color:{TP};'>
+              📌 <b>{title_esc}</b><br>📆 {date_esc} &nbsp;⏰ {start_esc}–{end_esc} ({dur_esc} min)<br>
+              {('<p style="margin-top:4px;">' + desc_esc + '</p>') if desc_esc else ''}
             </div>
             """, unsafe_allow_html=True)
-
-        elif itype == "USER_CHOICE":
-            msg  = idata.get("message", "Select a recipient:")
-            opts = idata.get("options", [])
-            st.markdown(f"""
-            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{BL_BG};border:1px solid {BL_BDR};">
-              <div style="font-weight:700;color:{TP};margin-bottom:10px;">👥 {esc(msg)}</div>
-            """, unsafe_allow_html=True)
-            for opt in opts:
-                uname = opt.get("username", "")
-                oname = opt.get("name", "")
-                label = uname + (f" · {oname}" if oname else "")
-                st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
-                if st.button(label, key=f"choice_{uname}_{ss.current_thread}"):
-                    do_resume({"user_input": uname}, f"Selected: {uname}"); st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        elif itype in ("EMAIL_BODY_CONFIRM", "EMAIL_BODY_EDIT"):
-            email_body = idata.get("email_body", "")
-            subject    = idata.get("subject", "")
-            recipient  = idata.get("recipient", "")
-            st.markdown(f"""
-            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{BL_BG};border:1px solid {BL_BDR};">
-              <div style="font-weight:700;color:{TP};margin-bottom:10px;">📧 Email Preview</div>
-              {"" if not recipient else f'<div style="font-size:12px;color:{TS};margin-bottom:4px;">To: {esc(recipient)}</div>'}
-              {"" if not subject else f'<div style="font-size:12px;color:{TS};margin-bottom:8px;">Subject: {esc(subject)}</div>'}
-              <pre style="background:{IN_BG};border:1px solid {IN_BDR};border-radius:8px;padding:12px;
-                          font-size:12px;white-space:pre-wrap;word-break:break-word;color:{TP};
-                          margin:0 0 12px;max-height:220px;overflow-y:auto;font-family:'Inter',sans-serif;">
-{esc(email_body)}</pre>
-            """, unsafe_allow_html=True)
-            col_send, col_edit, _ = st.columns([1, 1, 3])
-            with col_send:
+            c1, c2 = st.columns([1,1], gap="small")
+            with c1:
                 st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
-                if st.button("Send ✓", key=f"send_email_{ss.current_thread}"):
-                    do_resume({"user_input": "yes"}, "Confirmed: send email")
-                    ss.edit_box_open = False; st.rerun()
+                if st.button("✓ Confirm", key="btn_cal_yes"):
+                    do_resume({"user_input": "yes"}, "Confirm event"); st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-            with col_edit:
+            with c2:
                 st.markdown('<div class="action-btn-neutral">', unsafe_allow_html=True)
-                if st.button("Edit ✏️", key=f"edit_email_{ss.current_thread}"):
-                    ss.edit_box_open = True; ss.edit_body_text = email_body; st.rerun()
+                if st.button("✗ Cancel", key="btn_cal_no"):
+                    do_resume({"user_input": "no"}, "Cancel event"); st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-            if ss.edit_box_open:
-                new_body = st.text_area("edit_body_area", value=ss.edit_body_text, height=140,
-                    key=f"edit_body_area_{ss.current_thread}", label_visibility="collapsed")
-                st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
-                if st.button("Apply & Continue", key=f"apply_edit_{ss.current_thread}"):
-                    body_val = new_body.strip()
-                    if body_val:
-                        do_resume({"user_input": body_val}, body_val)
-                        ss.edit_box_open = False; st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        elif itype == "MANUAL_EMAIL_INPUT":
-            msg = idata.get("message", "Enter recipient email address:")
-            st.markdown(f"""
-            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{Y_BG};border:1px solid {Y_BDR};">
-              <div style="font-weight:700;color:{TP};margin-bottom:10px;">📨 {esc(msg)}</div>
-            """, unsafe_allow_html=True)
-            email_val = st.text_input("manual_email_input", placeholder="email@example.com",
-                key=f"manual_email_{ss.current_thread}", label_visibility="collapsed")
-            st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
-            if st.button("Submit", key=f"submit_manual_email_{ss.current_thread}"):
-                val = (email_val or "").strip()
-                if val: do_resume({"user_input": val}, val); st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
         else:
-            msg = idata.get("message", "Please type your response:")
-            st.markdown(f"""
-            <div style="border-radius:12px;padding:16px;margin:8px 0;background:{BL_BG};border:1px solid {BL_BDR};">
-              <div style="font-weight:700;color:{TP};margin-bottom:10px;">💬 {esc(msg)}</div>
-            """, unsafe_allow_html=True)
-            resp_val = st.text_input("interrupt_text_input", placeholder="Type your response…",
-                key=f"interrupt_text_{ss.current_thread}", label_visibility="collapsed")
+            st.markdown(f"<div style='color:{TP};font-size:13px;margin-bottom:8px;'>⚡ {esc(idata.get('message','Action required'))}</div>", unsafe_allow_html=True)
+            extra_input = st.text_input("Your response:", key="generic_interrupt_input")
             st.markdown('<div class="action-btn-blue">', unsafe_allow_html=True)
-            if st.button("Send Response", key=f"send_interrupt_{ss.current_thread}"):
-                val = (resp_val or "").strip()
-                if val: do_resume({"user_input": val}, val); st.rerun()
+            if st.button("Submit", key="btn_generic_submit"):
+                if extra_input: do_resume({"user_input": extra_input}, extra_input); st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div style="background:{HDR_BG};border-top:1px solid {SB_BDR};padding:12px 4px 16px;margin-top:16px;">
-    """, unsafe_allow_html=True)
-
-    input_disabled = bool(ss.interrupt_type)
-    input_col, send_col = st.columns([6, 1], gap="small")
-    with input_col:
-        user_input = st.text_input("message_input",
-            placeholder="Type your response…" if ss.interrupt_type else "Type your message…",
-            key="chat_input", disabled=input_disabled, label_visibility="collapsed")
-    with send_col:
-        st.markdown('<div class="send-btn">', unsafe_allow_html=True)
-        send_clicked = st.button("Send ➤", key="btn_send", disabled=input_disabled)
         st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div></div>', unsafe_allow_html=True)
-
-    if send_clicked and user_input and user_input.strip() and not input_disabled:
-        do_send(user_input.strip()); st.rerun()
+    else:
+        # Normal message input
+        st.markdown('<div class="input-area">', unsafe_allow_html=True)
+        user_input = st.text_input("message_input", key="chat_input", label_visibility="collapsed")
+        st.markdown('<div class="send-btn">', unsafe_allow_html=True)
+        if st.button("Send ➤", key="btn_send"):
+            if user_input: do_send(user_input); st.rerun()
+        st.markdown('</div></div>', unsafe_allow_html=True)

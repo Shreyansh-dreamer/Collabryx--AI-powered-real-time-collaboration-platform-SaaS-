@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import axios from "axios";
 import { Link } from "react-router-dom";
-import LightModeIcon from "@mui/icons-material/LightMode";
-import DarkModeIcon from "@mui/icons-material/DarkMode";
 import { User, Sun, Moon, LogOut, Menu, X, FileText, MessageSquare, Code, MessageCircle, Video } from 'lucide-react';
+import { useTheme } from './ThemeContext.jsx';
 
-export default function Navbar({ theme, changeTheme }) {
+export default function Navbar() {
+  const { theme, toggleTheme, isDark } = useTheme();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const isDark = theme === 'dark';
+
 
   const styles = {
     nav: {
@@ -79,7 +79,7 @@ export default function Navbar({ theme, changeTheme }) {
 
           <div className="hidden lg:flex items-center space-x-2">
             <a
-              onClick={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
+              onClick={toggleTheme}
               className="flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-200"
               style={{ color: styles.text.color }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}
@@ -105,7 +105,7 @@ export default function Navbar({ theme, changeTheme }) {
 
           <div className="flex lg:hidden items-center space-x-2">
             <a
-              onClick={() => changeTheme(theme === 'dark' ? 'light' : 'dark')}
+              onClick={toggleTheme}
               className="flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-200"
               style={{ color: styles.text.color }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = styles.hoverBg}

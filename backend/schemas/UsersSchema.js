@@ -28,6 +28,9 @@ const UsersSchema = mongoose.Schema({
     org:{
         type:String,
         required:true,
+    },
+    refreshToken:{
+        type:String
     }
 })
 

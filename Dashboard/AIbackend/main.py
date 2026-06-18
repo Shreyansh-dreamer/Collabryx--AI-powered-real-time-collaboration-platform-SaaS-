@@ -46,7 +46,7 @@ load_dotenv()
 
 
 MONGO_URI = os.getenv("MONGO_URL")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ-API-KEY")
 
 print("="*50)
 print(f"GROQ_API_KEY exists: {GROQ_API_KEY is not None}")
@@ -152,14 +152,37 @@ async def query_rag(question: str = Form(...),org: str = Form(...)):
     retriever = vectorstore.as_retriever(
         search_kwargs={
             "k": 5,
-            "filter": {"metadata.org": org}
+            "filter": {"org": org}
         }
     )
     docs = retriever.get_relevant_documents(question)
     if not docs:
         raise HTTPException(status_code=404, detail="No results")
+    # try:
+    #     docs = vectorstore.similarity_search(question, k=20)
+    #     filtered_docs = [d for d in docs if d.get("org") == org]
+    # except Exception as e:
+    #     raise HTTPException(status_code=500, detail=f"Database search failed: {e}")
+        
+    # if not filtered_docs:
+    #     raise HTTPException(status_code=404, detail="No results found for this organization.")
+        
+    context = "\n\n".join(d.page_content for d in docs[:3])
+    try:
+        prompt = (
+            f"You are a helpful assistant. Use the following document context to answer the user's question.\n"
+            f"Please generate a complete, helpful, and natural answer related to the actual question asked, based on the documents.\n"
+            f"If the context does not contain the answer, answer generally or say you cannot find it in the documents.\n\n"
+            f"Context:\n{context}\n\n"
+            f"Question: {question}\n\n"
+            f"Answer:"
+        )
+        answer = llm.invoke(prompt).content
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM generation failed: {e}")
+        
     return {
-        "answer": docs[0].page_content,
+        "answer": answer,
         "sources": [d.metadata for d in docs]
     }
 

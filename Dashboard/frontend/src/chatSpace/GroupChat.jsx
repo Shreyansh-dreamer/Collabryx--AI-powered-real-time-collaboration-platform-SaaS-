@@ -1,10 +1,12 @@
-import { useEffect, useState,useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import RoomList from "./RoomList";
 import Message from "./Message";
 import axios from 'axios';
 import socket from "../Socket";
+import { useTheme } from '../ThemeContext.jsx';
 
-export default function GroupChat({ theme }) {
+export default function GroupChat() {
+  const { isDark } = useTheme();
   const [selectedChat, setSelectedChat] = useState(null);
   const [message, setMessage] = useState("");
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -15,7 +17,6 @@ export default function GroupChat({ theme }) {
   const [messages, setMessages] = useState([]);
   const [userId,setUserId] = useState("");
 
-  const isDark = theme === "dark";
 
   useEffect(() => {
     if (!socket.connected) socket.connect();
@@ -189,7 +190,6 @@ export default function GroupChat({ theme }) {
           groups={groups}
           selectedChat={selectedChat}
           setSelectedChat={setSelectedChat}
-          isDark={isDark}
           isMobile={isMobile}
           showCreateGroup={showCreateGroup}
           setShowCreateGroup={setShowCreateGroup}
@@ -206,7 +206,6 @@ export default function GroupChat({ theme }) {
           <Message
             group={currentGroup}
             messages={messages}
-            isDark={isDark}
             isMobile={isMobile}
             onBack={() => setSelectedChat(null)}
             message={message}

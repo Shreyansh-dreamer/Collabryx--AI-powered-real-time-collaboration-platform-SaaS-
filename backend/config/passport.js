@@ -22,6 +22,8 @@ passport.use(
           existingUser.googleId = profile.id;
           existingUser.name = existingUser.name || profile.displayName;
           existingUser.photos = existingUser.photos || profile.photos?.[0]?.value || '';
+          existingUser.googleRefreshToken =
+            refreshToken || existingUser.googleRefreshToken;
           await existingUser.save();
           return done(null, existingUser);
         }
@@ -30,6 +32,7 @@ passport.use(
           name: profile.displayName,
           photos: profile.photos?.[0]?.value || '',
           email,
+          googleRefreshToken: refreshToken
         });
 
         await newUser.save();

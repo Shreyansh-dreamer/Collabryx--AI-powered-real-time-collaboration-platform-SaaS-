@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import io from "socket.io-client";
 import Editor from "@monaco-editor/react";
-import socket from '../Socket.jsx'
+import socket from '../Socket.jsx';
+import { useTheme } from '../ThemeContext.jsx';
 
-const App = ({ theme = "dark" }) => {
+const App = () => {
+  const { isDark } = useTheme();
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState("");
   const [userName, setUserName] = useState("");
@@ -14,7 +16,7 @@ const App = ({ theme = "dark" }) => {
   const [typing, setTyping] = useState("");
   const [editorTheme, setEditorTheme] = useState("vs-dark");
 
-  const isDark = theme === "dark";
+
 
   useEffect(() => {
     socket.on("userJoined", (users) => {

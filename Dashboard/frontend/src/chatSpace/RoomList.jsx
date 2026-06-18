@@ -1,8 +1,10 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { Search, Users } from "lucide-react";
 import CreateRoom from "./CreateRoom";
+import { useTheme } from '../ThemeContext.jsx';
 
-export default function RoomList({groups,selectedChat,setSelectedChat,isDark,isMobile,showCreateGroup,setShowCreateGroup,newGroupName,setNewGroupName,newGroupPhoto,setNewGroupPhoto,handleCreateGroup,}) {
+export default function RoomList({groups,selectedChat,setSelectedChat,isMobile,showCreateGroup,setShowCreateGroup,newGroupName,setNewGroupName,newGroupPhoto,setNewGroupPhoto,handleCreateGroup,}) {
+  const { isDark } = useTheme();
   const [imageErrors, setImageErrors] = useState({});
   const [search,setSearch] = useState("");
 
@@ -62,7 +64,6 @@ export default function RoomList({groups,selectedChat,setSelectedChat,isDark,isM
         </h1>
 
         <CreateRoom
-          isDark={isDark}
           showCreateGroup={showCreateGroup}
           setShowCreateGroup={setShowCreateGroup}
           newGroupName={newGroupName}
