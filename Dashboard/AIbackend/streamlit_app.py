@@ -410,9 +410,7 @@ if ss.sidebar_open and sidebar_col is not None:
                 switch_thread(tid); st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
 
-# ── MAIN CHAT AREA ────────────────────────────────────────────────────────────
 with main_col:
-    # Header bar: toggle ☰ + "Chat" title on same line
     hdr_toggle_col, hdr_title_col = st.columns([1, 10], gap="small")
     with hdr_toggle_col:
         if not ss.sidebar_open:
@@ -422,7 +420,6 @@ with main_col:
     with hdr_title_col:
         st.markdown(f'<div class="chat-header"><span style="font-weight:700;color:{TP};font-size:15px;">Chat</span></div>', unsafe_allow_html=True)
 
-    # Messages — use st.container(height=...) which Streamlit actually scrolls
     msgs = cur_msgs()
     with st.container(height=600, border=False):
         if msgs:

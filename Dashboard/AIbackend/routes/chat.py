@@ -71,7 +71,7 @@ app.add_middleware(
 router = APIRouter(prefix="/chat", tags=["Chat"])
 app.include_router(router)
 
-llm         = ChatGroq(model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY, temperature=0.7)
+llm         = ChatGroq(model="llama-3.3-70b-versatile", api_key=GROQ_API_KEY, temperature=0.2)
 embeddings  = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 vectorstore = MongoDBAtlasVectorSearch(
     collection=collection, embedding=embeddings, index_name="vector_index"
@@ -150,7 +150,7 @@ def doc_infoRetrieval_rag_intent(question: str) -> str:
 
 @tool
 def calendar_create_intent(message: str) -> str:
-    """Use this tool to create or schedule calendar events."""
+    """Use this tool when the user wants to schedule, create, add, or mark an event/meeting/appointment in Google Calendar. Input parameter 'message' must contain the user's event request details."""
     return "CALENDAR_CREATE"
 
 @tool
@@ -166,10 +166,14 @@ tool_node = ToolNode(tools)
 
 def chat_node(state: ChatState):
     system_prompt = SystemMessage(content=(
-        "You are a helpful assistant. Use tools only when necessary. "
-        "If a user wants to send an email, use gmail_send_intent. "
-        "If they want to schedule a meeting, use calendar_create_intent. "
-        "If what the user asks is very much related to the documents ,and is also the correct output for the question, use doc_infoRetrieval_rag_intent."
+        "You are a helpful assistant. Use tools only when necessary.\n"
+        "When calling a tool, do NOT write any conversational explanation, thoughts, text, or JSON block before or after the tool call. Call the tool directly and silently without any extra output.\n"
+        "If a user wants to send an email, use gmail_send_intent.\n"
+        "If they want to schedule, create, add, or mark a meeting, calendar event, or event in Google Calendar, you MUST use the calendar_create_intent tool. Do NOT explain what you are doing, do NOT output a breakdown of start/end times in text, and do NOT write any JSON block. Just call the tool silently.\n"
+        "Hierarchy for answering questions:\n"
+        "- If what the user asks is related to the documents, and is also the correct output for the question, you MUST use the doc_infoRetrieval_rag_intent tool.\n"
+        "- Else, if you already have the knowledge internally to answer the user's question, answer generally from your internal weights.\n"
+        "- Else, use the web_search tool to get information from the web."
     ))
     response = llm_with_tools.invoke([system_prompt] + state["messages"])
     return {"messages": [response]}
@@ -196,15 +200,76 @@ def extract_calendar_intent(state: ChatState):
     try:
         parsed = calendar_parser.parse(raw)
         data   = parsed.model_dump()
-        dt     = dateparser.parse(
-            f"{data['date']} {data['start_time']}",
-            settings={"PREFER_DATES_FROM": "future", "TIMEZONE": "Asia/Kolkata"}
-        )
-        if dt:
-            data["date"]       = dt.date().isoformat()
-            data["start_time"] = dt.strftime("%H:%M")
+        
+        # Parse date and start_time robustly
+        tz_settings = {"PREFER_DATES_FROM": "future", "TIMEZONE": "Asia/Kolkata", "RETURN_AS_TIMEZONE_AWARE": False}
+        
+        start_dt = None
+        try:
+            start_dt = datetime.fromisoformat(f"{data['date']}T{data['start_time']}")
+        except Exception:
+            pass
+            
+        if not start_dt:
+            start_dt = dateparser.parse(f"{data['date']} {data['start_time']}", settings=tz_settings)
+            
+        if not start_dt:
+            parsed_date = dateparser.parse(data['date'], settings=tz_settings)
+            parsed_time = dateparser.parse(data['start_time'], settings=tz_settings)
+            if parsed_date and parsed_time:
+                start_dt = datetime.combine(parsed_date.date(), parsed_time.time())
+            elif parsed_date:
+                start_dt = datetime.combine(parsed_date.date(), datetime.strptime("09:00", "%H:%M").time())
+            else:
+                start_dt = datetime.combine(datetime.now().date(), datetime.strptime("09:00", "%H:%M").time())
+                
+        # Parse end_time robustly
+        end_dt = None
+        duration = data.get("duration_minutes") or 60
+        
+        if data.get("end_time"):
+            try:
+                end_dt = datetime.fromisoformat(f"{data['date']}T{data['end_time']}")
+            except Exception:
+                pass
+                
+            if not end_dt:
+                end_dt = dateparser.parse(f"{data['date']} {data['end_time']}", settings=tz_settings)
+                
+            if not end_dt:
+                parsed_end_time = dateparser.parse(data['end_time'], settings=tz_settings)
+                if parsed_end_time:
+                    end_dt = datetime.combine(start_dt.date(), parsed_end_time.time())
+                    
+            if end_dt and end_dt <= start_dt:
+                if (end_dt - start_dt).days < 0:
+                    end_dt += timedelta(days=1)
+                    
+        if not end_dt:
+            end_dt = start_dt + timedelta(minutes=duration)
+            
+        data["date"] = start_dt.date().isoformat()
+        data["start_time"] = start_dt.time().strftime("%H:%M")
+        data["end_date"] = end_dt.date().isoformat()
+        data["end_time"] = end_dt.time().strftime("%H:%M")
+        
         return {"calendar_intent": data}
     except Exception as e:
+        try:
+            fallback_dt = dateparser.parse(last_human_content, settings={"PREFER_DATES_FROM": "future", "TIMEZONE": "Asia/Kolkata"})
+            if fallback_dt:
+                data = {
+                    "title": "Calendar Event",
+                    "date": fallback_dt.date().isoformat(),
+                    "start_time": fallback_dt.time().strftime("%H:%M"),
+                    "end_date": fallback_dt.date().isoformat(),
+                    "end_time": (fallback_dt + timedelta(hours=1)).time().strftime("%H:%M"),
+                    "description": f"Created from chat: {last_human_content}"
+                }
+                return {"calendar_intent": data}
+        except Exception:
+            pass
+            
         return {"messages": [AIMessage(
             content=f"I had trouble parsing that date: {e}. Could you give me the date and time clearly?"
         )]}
@@ -237,26 +302,42 @@ def get_google_credentials(state: ChatState):
     return creds
 
 def create_calendar_event_node(state: ChatState):
-    intent   = state["calendar_intent"]
-    tz       = pytz.timezone("Asia/Kolkata")
-    start_dt = tz.localize(datetime.fromisoformat(f"{intent['date']}T{intent['start_time']}"))
-    end_dt   = (
-        tz.localize(datetime.fromisoformat(f"{intent['date']}T{intent['end_time']}"))
-        if intent.get("end_time")
-        else start_dt + timedelta(minutes=intent.get("duration_minutes", 60))
-    )
-    creds   = get_google_credentials(state)
-    service = build("calendar", "v3", credentials=creds)
-    event   = {
-        "summary":     intent["title"],
-        "description": intent.get("description"),
-        "start": {"dateTime": start_dt.isoformat(), "timeZone": "Asia/Kolkata"},
-        "end":   {"dateTime": end_dt.isoformat(),   "timeZone": "Asia/Kolkata"},
-    }
-    service.events().insert(calendarId="primary", body=event).execute()
-    return {"messages": [AIMessage(
-        content=f"Calendar event '{intent['title']}' created for {intent['date']} at {intent['start_time']}"
-    )]}
+    intent = state.get("calendar_intent")
+    if not intent:
+        return {"messages": [AIMessage(content="Could not mark the event because the calendar intent was not successfully extracted.")]}
+    try:
+        tz       = pytz.timezone("Asia/Kolkata")
+        start_date = intent.get("date")
+        start_time = intent.get("start_time")
+        
+        start_dt = tz.localize(datetime.fromisoformat(f"{start_date}T{start_time}"))
+        
+        end_date = intent.get("end_date") or start_date
+        end_time = intent.get("end_time")
+        
+        if end_time:
+            end_dt = tz.localize(datetime.fromisoformat(f"{end_date}T{end_time}"))
+        else:
+            duration = intent.get("duration_minutes") or 60
+            end_dt = start_dt + timedelta(minutes=duration)
+            
+        creds   = get_google_credentials(state)
+        service = build("calendar", "v3", credentials=creds)
+        event   = {
+            "summary":     intent.get("title", "Meeting"),
+            "description": intent.get("description"),
+            "start": {"dateTime": start_dt.isoformat(), "timeZone": "Asia/Kolkata"},
+            "end":   {"dateTime": end_dt.isoformat(),   "timeZone": "Asia/Kolkata"},
+        }
+        service.events().insert(calendarId="primary", body=event).execute()
+        return {"messages": [AIMessage(
+            content=f"Event has been marked: '{intent.get('title')}' on {intent.get('date')} at {intent.get('start_time')}"
+        )]}
+    except Exception as e:
+        print(f"Error creating calendar event: {e}")
+        return {"messages": [AIMessage(
+            content=f"Failed to mark the event in Google Calendar: {str(e)}"
+        )]}
 
 def route_after_tool(state: ChatState) -> str:
     for msg in reversed(state["messages"]):
@@ -318,13 +399,11 @@ def check_rag_node(state: ChatState):
     if not query:
         return {"rag_docs": []}
     try:
-        # Search top 20 to ensure we capture enough docs for the org in Python
         results = vectorstore.similarity_search_with_score(query, k=20)
         filtered = [
             (doc, score) for doc, score in results
             if doc.metadata.get("org") == state["org"]
         ]
-        # Similarity threshold: 0.60 is suitable for all-MiniLM-L6-v2 cosine similarity
         if filtered and filtered[0][1] >= 0.60:
             return {"rag_docs": [doc for doc, score in filtered[:5]]}
     except Exception as e:
@@ -486,6 +565,8 @@ def ensure_gmail_auth(state: ChatState):
     return state
 
 def ensure_calendar_auth(state: ChatState):
+    if not state.get("calendar_intent"):
+        return {}
     user_email = state.get("user_email")
     if user_email:
         try:

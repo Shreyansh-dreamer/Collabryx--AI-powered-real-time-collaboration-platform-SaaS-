@@ -13,7 +13,13 @@ passport.use(
       try {
         console.log("Google profile:", profile);
         let user = await User.findOne({ googleId: profile.id });
-        if (user) return done(null, user);
+        if (user) {
+          if (refreshToken) {
+            user.refreshToken = refreshToken;
+            await user.save();
+          }
+          return done(null, user);
+        }
 
         const email = profile.emails?.[0]?.value || '';
         let existingUser = await User.findOne({ email });
@@ -22,8 +28,8 @@ passport.use(
           existingUser.googleId = profile.id;
           existingUser.name = existingUser.name || profile.displayName;
           existingUser.photos = existingUser.photos || profile.photos?.[0]?.value || '';
-          existingUser.googleRefreshToken =
-            refreshToken || existingUser.googleRefreshToken;
+          existingUser.refreshToken =
+            refreshToken || existingUser.refreshToken;
           await existingUser.save();
           return done(null, existingUser);
         }
@@ -32,7 +38,7 @@ passport.use(
           name: profile.displayName,
           photos: profile.photos?.[0]?.value || '',
           email,
-          googleRefreshToken: refreshToken
+          refreshToken: refreshToken
         });
 
         await newUser.save();

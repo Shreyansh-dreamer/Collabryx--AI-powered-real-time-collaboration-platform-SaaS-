@@ -14,7 +14,16 @@ const { verifyToken } = require('../auth/jwt');
 const otpStore = new Map();
 
 router.get('/auth/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] }));
+  passport.authenticate('google', {
+    scope: [
+      'profile',
+      'email',
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/calendar'
+    ],
+    accessType: 'offline',
+    prompt: 'consent'
+  }));
 
 router.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: 'http://localhost:5173' }),
