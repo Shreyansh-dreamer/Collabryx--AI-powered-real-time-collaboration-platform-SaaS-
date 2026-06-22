@@ -95,6 +95,15 @@ class EmailIntentModel(BaseModel):
 calendar_parser = PydanticOutputParser(pydantic_object=CalendarEventIntent)
 email_parser    = PydanticOutputParser(pydantic_object=EmailIntentModel)
 
+class DocRelevance(BaseModel):
+    index: int = Field(description="The 0-based index of the document being evaluated.")
+    score: float = Field(description="Relevance confidence score between 0.00 and 1.00.")
+
+class RelevanceEvaluation(BaseModel):
+    evaluations: List[DocRelevance] = Field(description="List of document relevance evaluations.")
+
+relevance_parser = PydanticOutputParser(pydantic_object=RelevanceEvaluation)
+
 class ChatState(TypedDict):
     messages:           Annotated[List[BaseMessage], add_messages]
     user_email:         str
@@ -160,20 +169,32 @@ def web_search(message:str)->str:
     results = tavily.search(query=message)
     return results['results']
 
-tools = [search_tool, calculator, github_profile, get_stock_price,gmail_send_intent, doc_infoRetrieval_rag_intent, calendar_create_intent, web_search]
+tools = [search_tool, calculator, github_profile, get_stock_price, gmail_send_intent, # doc_infoRetrieval_rag_intent,
+         calendar_create_intent, web_search]
 llm_with_tools = llm.bind_tools(tools)
 tool_node = ToolNode(tools)
 
 def chat_node(state: ChatState):
     system_prompt = SystemMessage(content=(
-        "You are a helpful assistant. Use tools only when necessary.\n"
-        "When calling a tool, do NOT write any conversational explanation, thoughts, text, or JSON block before or after the tool call. Call the tool directly and silently without any extra output.\n"
-        "If a user wants to send an email, use gmail_send_intent.\n"
-        "If they want to schedule, create, add, or mark a meeting, calendar event, or event in Google Calendar, you MUST use the calendar_create_intent tool. Do NOT explain what you are doing, do NOT output a breakdown of start/end times in text, and do NOT write any JSON block. Just call the tool silently.\n"
-        "Hierarchy for answering questions:\n"
-        "- If what the user asks is related to the documents, and is also the correct output for the question, you MUST use the doc_infoRetrieval_rag_intent tool.\n"
-        "- Else, if you already have the knowledge internally to answer the user's question, answer generally from your internal weights.\n"
-        "- Else, use the web_search tool to get information from the web."
+        "You are Collabryx AI, a highly capable assistant. "
+        "A document retrieval search has already run in the background and found no highly relevant organization documents. "
+        "Therefore, you must answer the user's questions using either your internal weights (pre-trained knowledge) or one of the available tools.\n\n"
+        
+        "RULES FOR ANSWERING AND TOOL USAGE:\n"
+        "1. Check if you can fully and accurately answer the user's query using your internal knowledge weights. If so, answer directly and professionally.\n"
+        "2. If you lack the required details, if the query requests real-time/recent information, or if you need to verify facts, you MUST use the `web_search` tool (powered by Tavily) to fetch the latest details from the web. Do not guess or hallucinate.\n"
+        "3. You have access to the following tools, which you MUST use under the specified circumstances:\n"
+        "   - `web_search`: Use this to query the web for real-time information, recent developments, or general search queries.\n"
+        "   - `gmail_send_intent`: Use this tool when the user wants to write, draft, or send an email.\n"
+        "   - `calendar_create_intent`: Use this tool when the user wants to schedule, create, add, or mark a meeting, event, or appointment in Google Calendar. Do NOT print dates, times, or JSON; call it silently.\n"
+        "   - `calculator`: Use this tool to perform mathematical or arithmetic calculations.\n"
+        "   - `github_profile`: Use this tool to lookup GitHub profile URLs for a given username.\n"
+        "   - `get_stock_price`: Use this tool to query stock prices for a ticker symbol.\n"
+        "   - `search_tool`: General search tool (DuckDuckGo search) if needed as a secondary fallback.\n\n"
+        
+        "TOOL CALLING PROTOCOL:\n"
+        "- Call the tool directly and silently without any prefix, suffix, explanation, conversational thoughts, or JSON wrappers. Just invoke the tool call.\n"
+        "- Do NOT write any conversational text before or after calling a tool."
     ))
     response = llm_with_tools.invoke([system_prompt] + state["messages"])
     return {"messages": [response]}
@@ -201,7 +222,6 @@ def extract_calendar_intent(state: ChatState):
         parsed = calendar_parser.parse(raw)
         data   = parsed.model_dump()
         
-        # Parse date and start_time robustly
         tz_settings = {"PREFER_DATES_FROM": "future", "TIMEZONE": "Asia/Kolkata", "RETURN_AS_TIMEZONE_AWARE": False}
         
         start_dt = None
@@ -223,7 +243,6 @@ def extract_calendar_intent(state: ChatState):
             else:
                 start_dt = datetime.combine(datetime.now().date(), datetime.strptime("09:00", "%H:%M").time())
                 
-        # Parse end_time robustly
         end_dt = None
         duration = data.get("duration_minutes") or 60
         
@@ -344,7 +363,7 @@ def route_after_tool(state: ChatState) -> str:
         if getattr(msg, "type", None) == "ai" and getattr(msg, "tool_calls", None):
             name = msg.tool_calls[0]["name"]
             if name == "gmail_send_intent":            return "extract_email"
-            if name == "doc_infoRetrieval_rag_intent": return "docRag"
+            # if name == "doc_infoRetrieval_rag_intent": return "docRag"
             if name == "calendar_create_intent":       return "extract_calendar_intent"
             return "chat"
     return "chat"
@@ -357,30 +376,31 @@ def rag_flow(state: ChatState):
                 query = msg.content
                 break
         retriever = vectorstore.as_retriever(
-            search_kwargs={"k": 5, "filter": {"org": state["org"]}}
+            search_kwargs={"k": 5, "pre_filter": {"org": {"$eq": state["org"]}}}
         )
-        docs = retriever.get_relevant_documents(query)
+        docs = retriever.invoke(query)
         return {"rag_docs": docs}
-        # docs = vectorstore.similarity_search(query, k=20)
-        # filtered_docs = [d for d in docs if d.metadata.get("org") == state["org"]]
-        # return {"rag_docs": filtered_docs}
     except Exception as e:
         return {"email_error": str(e), "rag_docs": []}
 
 def rag_reframe_node(state: ChatState):
     if not state.get("rag_docs"):
         return {"messages": [AIMessage(content="No relevant information found in the documents.")]}
-    context  = "\n\n".join(d.page_content for d in state["rag_docs"][:3])
+    
+    context = "\n\n".join(d.page_content for d in state["rag_docs"][:3])
+    
     question = ""
     for msg in reversed(state["messages"]):
         if getattr(msg, "type", None) == "human":
             question = msg.content
             break
+            
     try:
         prompt = (
             f"You are a helpful assistant. Use the following document context to answer the user's question.\n"
-            f"Please generate a complete, helpful, and natural answer related to the actual question asked, based on the documents.\n"
-            f"If the context does not contain the answer, answer generally and use your own knowledge base to answer the question.\n\n"
+            f"Please generate a complete, helpful, and natural answer related to the actual question asked, based strictly on the context provided.\n"
+            f"Do not mention the source documents, their relevance scores, or metadata in your answer.\n"
+            f"If the context does not contain the answer, answer generally and use your own knowledge base.\n\n"
             f"Context:\n{context}\n\n"
             f"Question: {question}\n\n"
             f"Answer:"
@@ -390,6 +410,8 @@ def rag_reframe_node(state: ChatState):
     except Exception as e:
         return {"messages": [AIMessage(content=f"Error: {e}")]}
 
+import re
+
 def check_rag_node(state: ChatState):
     query = ""
     for msg in reversed(state["messages"]):
@@ -398,17 +420,60 @@ def check_rag_node(state: ChatState):
             break
     if not query:
         return {"rag_docs": []}
+    
     try:
-        results = vectorstore.similarity_search_with_score(query, k=20)
-        filtered = [
-            (doc, score) for doc, score in results
-            if doc.metadata.get("org") == state["org"]
-        ]
-        if filtered and filtered[0][1] >= 0.60:
-            return {"rag_docs": [doc for doc, score in filtered[:5]]}
+        retriever = vectorstore.as_retriever(
+            search_kwargs={"k": 10, "pre_filter": {"org": {"$eq": state["org"]}}}
+        )
+        results = retriever.invoke(query)
+        if not results:
+            return {"rag_docs": []}
+
+        system_prompt = (
+            "You are a strict JSON generator. "
+            "Evaluate the relevance of retrieved documents to the user query. "
+            "Output ONLY a JSON object that matches the requested schema."
+            "Do not include any explanation, conversational text, or reasoning."
+            "Do not include the eveluations in the response"
+            "Do not include anything like the relevance of each document towards the users querry, and dont show that in the output"
+        )
+
+        user_content = f"User Query: {query}\n\n"
+        for idx, doc in enumerate(results):
+            user_content += f"--- Document {idx} ---\nContent: {doc.page_content}\n\n"
+        user_content += f"\n{relevance_parser.get_format_instructions()}"
+
+        response = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=user_content)]).content.strip()
+
+        # Robust extraction: look for the first '{' and last '}'
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            cleaned_response = json_match.group(0)
+        else:
+            cleaned_response = response
+
+        parsed = relevance_parser.parse(cleaned_response)
+        
+        good_docs = []
+        for item in parsed.evaluations:
+            idx = item.index
+            score = item.score
+            if idx is not None and 0 <= idx < len(results) and score > 0.70:
+                # Create a shallow copy and strip the relevance score
+                doc = results[idx].copy()
+                doc.metadata.pop("relevance_score", None) 
+                good_docs.append(doc)
+
+        # Sort good_docs by score (if you have the score available in your logic)
+        # Note: Since we stripped it, you might want to sort BEFORE stripping
+        
+        # Return ONLY the rag_docs update. 
+        # Do NOT include "messages" key so the LLM reasoning doesn't show in chat.
+        return {"rag_docs": good_docs}
+
     except Exception as e:
         print(f"RAG check error: {e}")
-    return {"rag_docs": []}
+        return {"rag_docs": []}
 
 def route_after_check_rag(state: ChatState) -> str:
     if state.get("rag_docs"):
@@ -717,7 +782,7 @@ graph.add_conditional_edges(
 graph.add_conditional_edges("chat",tools_condition,{"tools":"tools",END:END})
 graph.add_conditional_edges(
     "tools",route_after_tool,
-    {"extract_email":"extract_email", "docRag":"docRag",
+    {"extract_email":"extract_email", # "docRag":"docRag",
      "extract_calendar_intent":"extract_calendar_intent","chat":"chat"}
 )
 graph.add_edge("docRag","rag_reframe")
