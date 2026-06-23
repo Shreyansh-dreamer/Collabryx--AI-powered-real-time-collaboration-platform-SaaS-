@@ -19,6 +19,7 @@ _DEFAULTS = dict(
     interrupt_data=None, interrupt_type=None, is_processing=False,
     user_email=None, user_org=None, auth_checked=False, threads_loaded=False,
     edit_box_open=False, edit_body_text="", sidebar_open=True,
+    input_key=0,
 )
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -149,6 +150,13 @@ div[data-testid="stTextArea"] label{{display:none!important;}}
   border-top:1px solid {SB_BDR}!important;
   background:{PAGE_BG}!important;
   padding:10px 18px 12px!important;}}
+/* Sidebar always has a visible right border */
+[data-testid="stHorizontalBlock"]>[data-testid="column"]:first-child{{
+  border-right:2px solid {SB_BDR}!important;
+  background:{SB_BG}!important;}}
+/* Input+Send row: remove gap between columns */
+.input-row [data-testid="stHorizontalBlock"]{{
+  gap:6px!important;align-items:center!important;height:auto!important;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -537,10 +545,22 @@ with main_col:
             st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     else:
-        # Normal message input
-        st.markdown('<div class="input-area">', unsafe_allow_html=True)
-        user_input = st.text_input("message_input", key="chat_input", label_visibility="collapsed")
-        st.markdown('<div class="send-btn">', unsafe_allow_html=True)
-        if st.button("Send ➤", key="btn_send"):
-            if user_input: do_send(user_input); st.rerun()
+        # Normal message input — input and send button side by side
+        st.markdown('<div class="chat-input-bar"><div class="input-row">', unsafe_allow_html=True)
+        inp_col, btn_col = st.columns([8, 1], gap="small")
+        with inp_col:
+            user_input = st.text_input(
+                "message_input",
+                key=f"chat_input_{ss.input_key}",
+                label_visibility="collapsed",
+                placeholder="Type a message…",
+            )
+        with btn_col:
+            st.markdown('<div class="send-btn">', unsafe_allow_html=True)
+            if st.button("➤", key="btn_send"):
+                if user_input:
+                    do_send(user_input)
+                    ss.input_key += 1
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('</div></div>', unsafe_allow_html=True)

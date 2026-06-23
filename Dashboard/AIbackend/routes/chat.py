@@ -804,6 +804,11 @@ def _sse_stream(input_payload, config):
     for chunk, metadata in app_graph.stream(
         input_payload, config, stream_mode="messages"
     ):
+        # Only stream messages from nodes that are meant to output to the user
+        node_name = metadata.get("langgraph_node") if isinstance(metadata, dict) else None
+        if node_name not in ["chat", "rag_reframe", "create_calendar_event", "send_email"]:
+            continue
+
         if (
             isinstance(chunk, AIMessage)
             and chunk.content

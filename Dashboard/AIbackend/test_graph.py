@@ -1,12 +1,6 @@
 import sys
 import os
 
-os.environ["MONGO_URL"] = "mongodb://localhost:27017"
-os.environ["GROQ-API-KEY"] = "dummy"
-os.environ["GOOGLE_CLIENT_ID"] = "dummy"
-os.environ["GOOGLE_CLIENT_SECRET"] = "dummy"
-os.environ["GOOGLE_REDIRECT_URI"] = "dummy"
-
 from routes.chat import app_graph
 
 try:
