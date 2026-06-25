@@ -99,7 +99,6 @@ const App = () => {
       <div className={`pt-10 min-h-screen min-w-screen transition-colors duration-300 ${isDark ? 'bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900' : 'bg-gradient-to-br from-gray-50 via-blue-50 to-gray-50'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-20">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left Side - Marketing Content */}
             <div className="space-y-8">
               <div className="space-y-4">
                 <h1 className={`text-4xl sm:text-5xl lg:text-6xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -111,7 +110,6 @@ const App = () => {
                 </p>
               </div>
 
-              {/* Features */}
               <div className="grid sm:grid-cols-2 gap-4">
                 {[
                   { icon: '⚡', title: 'Lightning Fast', desc: 'Real-time synchronization' },
@@ -202,7 +200,6 @@ const App = () => {
               <p className={`text-lg font-mono font-bold ${isDark ? 'text-white' : 'text-gray-900'} break-all`}>{roomId}</p>
             </div>
 
-            {/* Active Users */}
             <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-900/50 border border-gray-700' : 'bg-gray-50 border border-gray-200'} flex-1`}>
               <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide mb-3`}>
                 Active Users ({users.length})
@@ -231,7 +228,6 @@ const App = () => {
               )}
             </div>
 
-            {/* Language Selector */}
             <div>
               <label className={`block text-sm font-semibold ${isDark ? 'text-gray-400' : 'text-gray-600'} uppercase tracking-wide mb-2`}>
                 Language
@@ -264,9 +260,7 @@ const App = () => {
           </div>
         </div>
 
-        {/* Editor - Top on mobile, Right on desktop - 75% width */}
         <div className="flex-1 lg:w-3/4 flex flex-col overflow-hidden order-1 lg:order-2">
-          {/* Editor Theme Toggle */}
           <div className={`${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-4 py-2 flex items-center justify-between`}>
             <span className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
               Editor Theme

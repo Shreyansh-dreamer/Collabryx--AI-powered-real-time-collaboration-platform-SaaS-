@@ -16,6 +16,8 @@ export default function GroupChat() {
   const [groups, setGroups] = useState([]);
   const [messages, setMessages] = useState([]);
   const [userId,setUserId] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
 
 
   useEffect(() => {
@@ -25,12 +27,15 @@ export default function GroupChat() {
       setUserId(userId);
     };
 
-    const handleNewMessage = ({ id, senderId, content, createdAt }) => {
+    const handleNewMessage = ({ id, senderId, content, fileUrl, fileName, fileType, createdAt }) => {
       setMessages(prev => [
         ...prev,
         {
           id,
           text: content,
+          fileUrl,
+          fileName,
+          fileType,
           isOwn: senderId === userId,
           time: new Date(createdAt).toLocaleTimeString([], {
             hour: "2-digit",
@@ -152,6 +157,9 @@ export default function GroupChat() {
         const formatted = res.data.map(msg => ({
           id: msg._id,
           text: msg.content,
+          fileUrl: msg.fileUrl,
+          fileName: msg.fileName,
+          fileType: msg.fileType,
           isOwn: msg.senderId === userId,
           time: new Date(msg.createdAt).toLocaleTimeString([], {
             hour: "2-digit",
@@ -167,14 +175,44 @@ export default function GroupChat() {
     fetchMessages();
   }, [selectedChat, userId]);
 
-  const handleSend = useCallback(() => {
-    if (!message.trim() || !selectedChat) return;
-    socket.emit("send-message", {
-      roomId: selectedChat,
-      content: message,
-    });
+  const handleSend = useCallback(async () => {
+    if (!selectedChat) return;
+    if (!message.trim() && !selectedFile) return;
+    if (isUploading) return;
+
+    if (selectedFile) {
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      try {
+        const res = await axios.post(`http://localhost:3000/rooms/${selectedChat}/upload`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          withCredentials: true
+        });
+        const { fileUrl, fileName, fileType } = res.data;
+        socket.emit("send-message", {
+          roomId: selectedChat,
+          content: message,
+          fileUrl,
+          fileName,
+          fileType
+        });
+      } catch (err) {
+        console.error("File upload failed:", err.response?.data || err.message);
+        alert("Failed to upload file. Please try again.");
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+      setSelectedFile(null);
+    } else {
+      socket.emit("send-message", {
+        roomId: selectedChat,
+        content: message,
+      });
+    }
     setMessage("");
-  },[message,selectedChat]);
+  }, [message, selectedChat, selectedFile, isUploading]);
 
   const showSidebar = !isMobile || selectedChat === null;
   const showChat = !isMobile || selectedChat !== null;
@@ -213,6 +251,9 @@ export default function GroupChat() {
             handleSend={handleSend}
             userId={userId}
             onDeleteGroup={handleDeleteGroup}
+            selectedFile={selectedFile}
+            setSelectedFile={setSelectedFile}
+            isUploading={isUploading}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center">

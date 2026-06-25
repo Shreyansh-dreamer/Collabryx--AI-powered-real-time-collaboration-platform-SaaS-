@@ -158,15 +158,7 @@ async def query_rag(question: str = Form(...),org: str = Form(...)):
     docs = retriever.get_relevant_documents(question)
     if not docs:
         raise HTTPException(status_code=404, detail="No results")
-    # try:
-    #     docs = vectorstore.similarity_search(question, k=20)
-    #     filtered_docs = [d for d in docs if d.get("org") == org]
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=f"Database search failed: {e}")
-        
-    # if not filtered_docs:
-    #     raise HTTPException(status_code=404, detail="No results found for this organization.")
-        
+    
     context = "\n\n".join(d.page_content for d in docs[:3])
     try:
         prompt = (

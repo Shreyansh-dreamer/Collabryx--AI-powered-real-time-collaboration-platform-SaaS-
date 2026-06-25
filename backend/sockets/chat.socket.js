@@ -37,20 +37,27 @@ module.exports = (io) => {
       socket.leave(roomId);
     });
 
-    socket.on("send-message", async ({roomId,content}) => {
+    socket.on("send-message", async ({roomId, content, fileUrl, fileName, fileType}) => {
       const room = await Room.findById(roomId);
       if(!room) return;
       if(room.org !== socket.org) return;
       const message = await Message.create({
         roomId,
         senderId: socket.userId,
-        content
+        content,
+        fileUrl,
+        fileName,
+        fileType
       });
-      await Room.findByIdAndUpdate(roomId,{ lastmsg: content, updatedAt: new Date() });
+      const lastmsg = fileUrl ? `📎 File: ${fileName}` : content;
+      await Room.findByIdAndUpdate(roomId,{ lastmsg, updatedAt: new Date() });
       io.to(roomId).emit("new-message",{
         id: message._id,
         senderId: socket.userId,
         content,
+        fileUrl,
+        fileName,
+        fileType,
         createdAt: message.createdAt,
       });
     });

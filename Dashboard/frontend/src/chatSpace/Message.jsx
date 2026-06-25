@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Send, Search, MoreVertical, Smile, Paperclip, Trash2 } from "lucide-react";
+import { ArrowLeft, Send, Search, MoreVertical, Smile, Paperclip, Trash2, X, Loader2 } from "lucide-react";
 import { useTheme } from '../ThemeContext.jsx';
 
-export default function Message({group,messages,isMobile,onBack,message,setMessage,handleSend,userId,onDeleteGroup,}) {
+export default function Message({group,messages,isMobile,onBack,message,setMessage,handleSend,userId,onDeleteGroup,selectedFile,setSelectedFile,isUploading}) {
   const { isDark } = useTheme();
 
   const bottomRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
@@ -98,7 +99,40 @@ export default function Message({group,messages,isMobile,onBack,message,setMessa
                   : "bg-white text-gray-800 rounded-bl-sm shadow-sm"
               }`}
             >
-              <p className="text-sm">{msg.text}</p>
+              {msg.fileUrl && (
+                <div className="mb-2 max-w-full">
+                  {msg.fileType?.startsWith("image/") ? (
+                    <a href={msg.fileUrl} target="_blank" rel="noreferrer">
+                      <img
+                        src={msg.fileUrl}
+                        alt={msg.fileName}
+                        className="max-h-60 rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                      />
+                    </a>
+                  ) : (
+                    <a
+                      href={msg.fileUrl}
+                      download={msg.fileName}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`flex items-center gap-2 p-2 rounded-lg border ${
+                        msg.isOwn
+                          ? "bg-blue-600 border-blue-400 text-white hover:bg-blue-700"
+                          : isDark
+                          ? "bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600"
+                          : "bg-gray-100 border-gray-200 text-gray-800 hover:bg-gray-200"
+                      } transition-colors`}
+                    >
+                      <Paperclip size={16} className="shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{msg.fileName}</p>
+                        <p className="text-[10px] opacity-75">Click to view/download</p>
+                      </div>
+                    </a>
+                  )}
+                </div>
+              )}
+              {msg.text && <p className="text-sm break-words">{msg.text}</p>}
               <p className="text-xs mt-1 opacity-70">{msg.time}</p>
             </div>
           </div>
@@ -107,9 +141,47 @@ export default function Message({group,messages,isMobile,onBack,message,setMessa
       </div>
 
 
-      <div className={`${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"} border-t p-4`}>
+      <div className={`${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"} border-t p-4 flex flex-col gap-2`}>
+        {selectedFile && (
+          <div className={`px-3 py-2 rounded-xl flex items-center justify-between gap-3 ${
+            isDark ? "bg-gray-700 text-white" : "bg-gray-100 text-gray-800"
+          }`}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Paperclip size={18} className="text-blue-500 shrink-0" />
+              <div className="truncate">
+                <p className="text-xs font-semibold truncate">{selectedFile.name}</p>
+                <p className="text-[10px] opacity-65">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setSelectedFile(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+              className={`p-1 rounded-full ${isDark ? "hover:bg-gray-600 text-gray-300" : "hover:bg-gray-200 text-gray-600"}`}
+              disabled={isUploading}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
-          <button className={`p-2 ${isDark ? "text-gray-400" : "text-gray-600"}`}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                setSelectedFile(e.target.files[0]);
+              }
+            }}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className={`p-2 rounded-lg ${isDark ? "text-gray-400 hover:bg-gray-700" : "text-gray-600 hover:bg-gray-100"} disabled:opacity-50`}
+          >
             <Paperclip size={20} />
           </button>
 
@@ -117,20 +189,26 @@ export default function Message({group,messages,isMobile,onBack,message,setMessa
             <input
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder="Type a message..."
-              className={`flex-1 bg-transparent outline-none ${isDark ? "text-white" : "text-gray-800"}`}
+              onKeyDown={(e) => e.key === "Enter" && !isUploading && handleSend()}
+              placeholder={isUploading ? "Uploading file..." : "Type a message..."}
+              disabled={isUploading}
+              className={`flex-1 bg-transparent outline-none ${isDark ? "text-white" : "text-gray-800"} disabled:opacity-60`}
             />
-            <button className={isDark ? "text-gray-400" : "text-gray-600"}>
+            <button className={isDark ? "text-gray-400" : "text-gray-600"} disabled={isUploading}>
               <Smile size={20} />
             </button>
           </div>
 
           <button
             onClick={handleSend}
-            className="p-3 bg-blue-500 hover:bg-blue-600 rounded-full transition-colors"
+            disabled={isUploading || (!message.trim() && !selectedFile)}
+            className="p-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-400 disabled:cursor-not-allowed rounded-full transition-colors flex items-center justify-center shrink-0"
           >
-            <Send size={20} className="text-white" />
+            {isUploading ? (
+              <Loader2 size={20} className="text-white animate-spin" />
+            ) : (
+              <Send size={20} className="text-white" />
+            )}
           </button>
         </div>
       </div>

@@ -2,8 +2,14 @@ const express = require("express");
 const Room = require("../model/RoomModel");
 const Message = require("../model/MessageModel");
 const {verifyUser} = require("../Middleware/verifyUser.js");
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
+const path = require("path");
 
 const router = express.Router();
+
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 router.post("/createRoom", verifyUser , async (req, res) => {
   const orga=req.org;
@@ -12,7 +18,7 @@ router.post("/createRoom", verifyUser , async (req, res) => {
     lastmsg: "",
     org: orga,
     image: req.body.image,
-    createdBy: req.user._id
+    createdBy: req.user
   });
   res.json(room);
 });
@@ -33,7 +39,7 @@ router.post("/rooms/:roomId/message", verifyUser, async (req, res) => {
   if (!content?.trim()) {
     return res.status(400).json({ error: "Empty message" });
   }
-  const message = await Message.create({roomId,senderId: req.userId,content,});
+  const message = await Message.create({roomId,senderId: req.user,content,});
   await Room.findByIdAndUpdate(roomId, {
     lastmsg: content,
   });
@@ -56,6 +62,42 @@ router.delete("/rooms/:roomId/delete", verifyUser, async (req, res) => {
   } catch (err) {
     console.error("Error deleting room:", err);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.post("/rooms/:roomId/upload", verifyUser, upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const uploadToCloudinary = (fileBuffer, fileName) => {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            resource_type: "auto",
+            folder: "collabryx_chat",
+            public_id: path.parse(fileName).name + "-" + Date.now(),
+          },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        );
+        stream.end(fileBuffer);
+      });
+    };
+
+    const result = await uploadToCloudinary(req.file.buffer, req.file.originalname);
+
+    res.json({
+      fileUrl: result.secure_url,
+      fileName: req.file.originalname,
+      fileType: req.file.mimetype
+    });
+  } catch (err) {
+    console.error("Cloudinary upload error in route:", err);
+    res.status(500).json({ error: "Internal server error during file upload" });
   }
 });
 
